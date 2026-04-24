@@ -23,3 +23,4 @@ durations for stations that come before the origin in the route order.
 ## UI
 
 - for small lines, only display the dots when the zoom is sufficient (otherwise, too many dots next to each other)
+- show a progress bar when loading the routes
