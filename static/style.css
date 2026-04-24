@@ -255,6 +255,9 @@ details[open] .route-chevron { transform: rotate(90deg); }
 .leaflet-popup-content strong { color: #38bdf8; }
 .leaflet-popup-content a:hover { text-decoration: underline !important; }
 
+/* Remove the browser focus outline Leaflet shows on clicked SVG paths */
+path.leaflet-interactive:focus { outline: none; }
+
 /* Route polyline tooltip */
 .route-tooltip {
   background: #1e293b;

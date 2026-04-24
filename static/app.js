@@ -275,6 +275,13 @@ function deselectRoute() {
   // Close all accordions
   connList.querySelectorAll("details.route-section").forEach(d => { d.open = false; });
 
+  // Zoom out to fit all routes
+  if (routes.length) {
+    const allBounds = routes.map(r => r.poly.getBounds());
+    const combined  = allBounds.reduce((acc, b) => acc.extend(b));
+    map.fitBounds(combined, { padding: [60, 60] });
+  }
+
   _changingRoute = false;
 }
 
