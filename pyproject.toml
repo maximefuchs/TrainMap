@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.23",
     "httpx>=0.25",
     "python-dotenv>=1.0",
+    "pytest>=9.0.3",
 ]
 
 [project.optional-dependencies]
