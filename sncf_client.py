@@ -178,7 +178,7 @@ def _process_route_schedules(
       4. Collect the ordered stop sequence (from origin onwards) as a route_path.
          Deduplicate by the tuple of stop_area ids so identical routes aren't drawn twice.
     """
-    for schedule in schedules:
+    for index_schedule, schedule in enumerate(schedules):
         table = schedule.get("table", {})
         rows = table.get("rows", [])
         line = schedule.get("display_informations", {})
@@ -234,21 +234,51 @@ def _process_route_schedules(
             else 0
         )
 
-        # Build the ordered stop list for this route (from origin onwards).
-        # The origin stop itself is always the first entry.
         origin_sp = rows[origin_idx].get("stop_point", {})
         origin_sa = origin_sp.get("stop_area", {})
         origin_coord = origin_sa.get("coord", {})
-        path_stops = [
+
+        # seen_ids: tracks stop-area IDs as we scan downstream.  Seeded with
+        # only the origin — NOT the upstream stops — so that legitimate
+        # downstream stops whose IDs happen to also appear upstream are not
+        # blocked.  A downstream stop already present in seen_ids means the
+        # route is doubling back; we stop there.
+        seen_ids: set[str] = {origin_sa_id}
+
+        # stops: the drawable path list.
+        # Pre-populate with upstream rows filtered to the representative trip so
+        # the polyline covers the full line (not just origin → terminus).
+        stops = []
+        for i in range(origin_idx):
+            sp_i = rows[i].get("stop_point", {})
+            sa_i = sp_i.get("stop_area", {})
+            sa_id_i = sa_i.get("id", "")
+            if not sa_id_i:
+                continue
+            coord_i = sa_i.get("coord", {})
+            stops.append(
+                {
+                    "id": sa_id_i,
+                    "name": sa_i.get("name", sp_i.get("name", "")),
+                    "lat": float(coord_i.get("lat", 0)),
+                    "lon": float(coord_i.get("lon", 0)),
+                }
+            )
+            print(f"Prepending upstream stop to path: {sa_id_i} ({sa_i.get('name', sp_i.get('name', ''))})")
+
+        # Origin at its natural position.
+        stops.append(
             {
                 "id": origin_sa_id,
                 "name": origin_sa.get("name", origin_sp.get("name", "")),
                 "lat": float(origin_coord.get("lat", 0)),
                 "lon": float(origin_coord.get("lon", 0)),
             }
-        ]
+        )
+        print(f"Added origin stop to path: {origin_sa_id} ({origin_sa.get('name', origin_sp.get('name', ''))})")
 
-        # Downstream stops
+        # Downstream stops — path and connection accumulation are kept separate
+        # so that timetable gaps never prevent a stop from appearing on the route.
         for j in range(origin_idx + 1, len(rows)):
             dest_row = rows[j]
             dest_sp = dest_row.get("stop_point", {})
@@ -257,15 +287,26 @@ def _process_route_schedules(
             dest_name = dest_sa.get("name", dest_sp.get("name", ""))
             dest_coord = dest_sa.get("coord", {})
 
-            if not dest_sa_id or dest_sa_id == origin_sa_id:
+            if not dest_sa_id:
                 continue
+            if dest_sa_id in seen_ids:
+                print(f"Route is doubling back at stop: {dest_sa_id} ({dest_name}). Break here.")
+                break  # route is doubling back — stop here
 
-            dest_raw_dts = dest_row.get("date_times", [])
-            # Only consider this stop served by the representative trip for path building
-            rep_col_served = rep_col < len(dest_raw_dts) and bool(
-                dest_raw_dts[rep_col].get("date_time", "")
+            # Always add to seen_ids and to the drawable path.
+            seen_ids.add(dest_sa_id)
+            stops.append(
+                {
+                    "id": dest_sa_id,
+                    "name": dest_name,
+                    "lat": float(dest_coord.get("lat", 0)),
+                    "lon": float(dest_coord.get("lon", 0)),
+                }
             )
+            print(f"Added downstream stop to path: {dest_sa_id} ({dest_name})")
 
+            # Connection accumulation — requires valid timetable data.
+            dest_raw_dts = dest_row.get("date_times", [])
             dest_times = [
                 _extract_time_part(dt.get("date_time", ""))
                 for dt in dest_raw_dts
@@ -274,7 +315,6 @@ def _process_route_schedules(
             if not dest_times:
                 continue
 
-            # Compute min travel time across all trips (same column index = same trip)
             min_duration = None
             for k, orig_t in enumerate(origin_times_hhmm):
                 if k >= len(dest_times):
@@ -296,7 +336,6 @@ def _process_route_schedules(
 
             duration_min = min_duration // 60
 
-            # Accumulate connection info
             if dest_sa_id not in connections:
                 connections[dest_sa_id] = {
                     "id": dest_sa_id,
@@ -326,21 +365,9 @@ def _process_route_schedules(
                 ):
                     existing["last_departure"] = last_dep
 
-            # Accumulate stop in the path — only for the representative trip,
-            # so the polyline stays geographically coherent (no cross-branch jumps).
-            if rep_col_served:
-                path_stops.append(
-                    {
-                        "id": dest_sa_id,
-                        "name": dest_name,
-                        "lat": float(dest_coord.get("lat", 0)),
-                        "lon": float(dest_coord.get("lon", 0)),
-                    }
-                )
-
         # Register the route path, keyed by its stop sequence to deduplicate.
         # Stops with no valid coordinates (0,0) are skipped from the path.
-        path_stops_valid = [s for s in path_stops if s["lat"] != 0 or s["lon"] != 0]
+        path_stops_valid = [s for s in stops if s["lat"] != 0 or s["lon"] != 0]
         if len(path_stops_valid) < 2:
             continue
 
