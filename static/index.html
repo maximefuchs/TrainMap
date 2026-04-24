@@ -600,6 +600,17 @@ function renderConnections(origin, conns, paths) {
         <div class="stop-list">${stopsHtml}</div>
       </details>`;
   }).join("");
+
+  // Close all other accordions when one opens
+  connList.querySelectorAll("details.route-section").forEach(det => {
+    det.addEventListener("toggle", () => {
+      if (det.open) {
+        connList.querySelectorAll("details.route-section").forEach(other => {
+          if (other !== det) other.open = false;
+        });
+      }
+    });
+  });
 }
 
 // ── Activate a stop from sidebar click ───────────────────────────────────────
