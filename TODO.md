@@ -18,8 +18,8 @@ durations for stations that come before the origin in the route order.
 
 - when clicking on a line, remove (or light transparent) all the other lines
 - allow english/french
-- on the left, group the stops from a same line together. Create dropdown to see all the stops. When click on a stop on the map, the corresponding dropdown should open
 
 ## UI
 
 - for small lines, only display the dots when the zoom is sufficient (otherwise, too many dots next to each other)
+- show a progress bar when loading the routes

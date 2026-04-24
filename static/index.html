@@ -151,42 +151,104 @@
       scrollbar-color: #334155 transparent;
     }
 
-    .conn-item {
-      padding: 12px 16px;
+    /* ── Route accordion ─────────────────────────────────────── */
+    .route-section {
       border-bottom: 1px solid #0f172a;
+    }
+
+    .route-summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
       cursor: pointer;
+      user-select: none;
+      list-style: none;
       transition: background 0.15s;
     }
-    .conn-item:hover { background: #0f172a; }
-    .conn-item.active { background: #0c4a6e; border-left: 3px solid #38bdf8; }
+    .route-summary::-webkit-details-marker { display: none; }
+    .route-summary:hover { background: #0f172a; }
 
-    .conn-name {
-      font-weight: 600;
-      font-size: 0.92rem;
+    .route-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .route-label {
+      font-weight: 700;
+      font-size: 0.88rem;
       color: #f1f5f9;
-      margin-bottom: 4px;
+      flex: 1;
     }
 
-    .conn-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 4px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      padding: 2px 7px;
-      border-radius: 9999px;
+    .route-count {
       font-size: 0.75rem;
-      font-weight: 500;
+      color: #64748b;
     }
-    .badge-dur  { background: #1d4ed8; color: #bfdbfe; }
-    .badge-freq { background: #065f46; color: #a7f3d0; }
-    .badge-line { background: #44337a; color: #d6bcfa; }
-    .badge-time { background: #7c2d12; color: #fed7aa; }
+
+    .route-chevron {
+      font-size: 0.7rem;
+      color: #64748b;
+      transition: transform 0.2s;
+    }
+    details[open] .route-chevron { transform: rotate(90deg); }
+
+    /* ── Stop list inside accordion ──────────────────────────── */
+    .stop-list {
+      padding: 4px 0 8px 0;
+    }
+
+    .stop-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0 16px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .stop-row:hover { background: #0f172a; }
+    .stop-row.active { background: #0c4a6e; }
+
+    /* Vertical track column */
+    .stop-track {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 20px;
+      flex-shrink: 0;
+      margin-right: 10px;
+    }
+    .stop-track-line {
+      width: 2px;
+      flex: 1;
+      min-height: 8px;
+    }
+    .stop-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+    .stop-dot.origin {
+      width: 14px;
+      height: 14px;
+      border-width: 3px;
+    }
+
+    .stop-name {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      padding: 5px 0;
+      line-height: 1.3;
+    }
+    .stop-name.origin {
+      font-weight: 700;
+      color: #f1f5f9;
+    }
 
     /* ── Map ─────────────────────────────────────────────────── */
     #map {
@@ -204,6 +266,7 @@
     .leaflet-popup-tip { background: #1e293b; }
     .leaflet-popup-content { margin: 10px 14px; font-size: 0.88rem; line-height: 1.6; }
     .leaflet-popup-content strong { color: #38bdf8; }
+    .leaflet-popup-content a:hover { text-decoration: underline !important; }
 
     /* Route polyline tooltip */
     .route-tooltip {
@@ -256,7 +319,7 @@
 
 <main>
   <aside id="sidebar">
-    <div id="sidebar-header">Direct connections — <span id="conn-count">0</span> stations</div>
+    <div id="sidebar-header">Routes — <span id="conn-count">0</span></div>
     <div id="connections-list">
       <div id="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -283,11 +346,14 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
 
 // ── State ────────────────────────────────────────────────────────────────────
 let originMarker = null;
-let connectionMarkers = [];
-let routePolylines = [];   // one Leaflet polyline per deduplicated route path
+let stopMarkers = [];        // { marker, stopId, routeIndices[] }
+let routePolylines = [];     // one Leaflet polyline per route path
 let selectedStation = null;
-let activeConnItem = null;
+let activeStopRow = null;
 let debounceTimer = null;
+
+// stopId → array of route indices that include this stop
+let stopRouteMap = {};
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const input = document.getElementById("station-input");
@@ -419,7 +485,7 @@ async function selectStation(station) {
     const conns = data.connections || [];
     const paths = data.route_paths || [];
     showStatus(`${conns.length} direct connections found`, "ok");
-    connCount.textContent = conns.length;
+    connCount.textContent = `${paths.length} route${paths.length !== 1 ? "s" : ""}`;
     renderConnections(station, conns, paths);
   } catch (e) {
     console.error("selectStation error:", e);
@@ -427,96 +493,167 @@ async function selectStation(station) {
   }
 }
 function renderConnections(origin, conns, paths) {
-  if (!conns.length) {
+  if (!paths.length) {
     connList.innerHTML = `<div id="empty-state"><p>No direct train connections found.</p></div>`;
     return;
   }
 
-  // Draw one polyline per route path (connecting all stops of the same train in order)
+  // Build stopId → [routeIdx, …] index
+  stopRouteMap = {};
+  paths.forEach((path, idx) => {
+    path.stops.forEach(s => {
+      if (!stopRouteMap[s.id]) stopRouteMap[s.id] = [];
+      if (!stopRouteMap[s.id].includes(idx)) stopRouteMap[s.id].push(idx);
+    });
+  });
+
+  // Draw polylines + markers, one pass per route
+  // Collect unique stops across all routes for marker deduplication
+  const markerByStopId = {};
+
   paths.forEach((path, idx) => {
     const color = routeColor(idx);
     const latlngs = path.stops.map(s => [s.lat, s.lon]);
 
-    const poly = L.polyline(latlngs, {
-      color,
-      weight: 3,
-      opacity: 0.75,
-    }).addTo(map);
-
-    poly.bindTooltip(path.line_code || "Train", {
-      sticky: true,
-      className: "route-tooltip",
-    });
-
-    // Highlight on hover
+    const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
+    poly.bindTooltip(path.line_code || "Train", { sticky: true, className: "route-tooltip" });
     poly.on("mouseover", () => poly.setStyle({ weight: 5, opacity: 1 }));
     poly.on("mouseout",  () => poly.setStyle({ weight: 3, opacity: 0.75 }));
-
     routePolylines.push(poly);
+
+    path.stops.forEach(s => {
+      if (markerByStopId[s.id]) return; // already placed by an earlier route
+      const isOrigin = s.id === origin.id;
+      if (isOrigin) return; // origin has its own marker
+      const marker = L.marker([s.lat, s.lon], {
+        icon: circleIcon(color),
+        zIndexOffset: 0,
+      }).addTo(map);
+      // Popup content is built lazily on first open so stopRouteMap is fully populated
+      marker.on("click", () => {
+        const routeIndices = stopRouteMap[s.id] || [];
+        const lineLinks = routeIndices.map(ri => {
+          const p = paths[ri];
+          const lc = p.line_code || "Train";
+          const fn = p.stops[0]?.name || "";
+          const ln = p.stops[p.stops.length - 1]?.name || "";
+          const c  = routeColor(ri);
+          return `<div style="margin-top:5px">
+            <a href="#" onclick="openRouteAccordion(${ri});return false;"
+               style="color:${c};text-decoration:none;font-weight:600">
+              ▶ ${fn} — ${ln} <span style="opacity:.7">(${lc})</span>
+            </a>
+          </div>`;
+        }).join("");
+        marker.bindPopup(`<strong>${s.name}</strong>${lineLinks}`).openPopup();
+      });
+      markerByStopId[s.id] = marker;
+      stopMarkers.push({ marker, stopId: s.id });
+    });
   });
 
-  // Draw destination markers
-  conns.forEach((c, idx) => {
-    const marker = L.marker([c.lat, c.lon], { icon: circleIcon("#38bdf8") })
-      .addTo(map)
-      .bindPopup(buildPopup(c));
-    connectionMarkers.push({ marker, conn: c, idx });
-    marker.on("click", () => highlightItem(idx));
-  });
+  // Build sidebar accordions
+  connList.innerHTML = paths.map((path, idx) => {
+    const color = routeColor(idx);
+    const stopCount = path.stops.length;
+    const firstName = path.stops[0]?.name || "";
+    const lastName  = path.stops[stopCount - 1]?.name || "";
+    const lineCode  = path.line_code || "Train";
+    const label = `${firstName} — ${lastName} <span style="opacity:.6;font-weight:400">(${lineCode})</span>`;
 
-  // Sidebar list
-  connList.innerHTML = conns.map((c, idx) => {
-    const lines = c.lines.slice(0, 4).map(l =>
-      `<span class="badge badge-line">${l}</span>`
-    ).join("");
+    const stopsHtml = path.stops.map((s, si) => {
+      const isOrigin = s.id === origin.id;
+      const isFirst = si === 0;
+      const isLast  = si === stopCount - 1;
+      const trackLineAbove = !isFirst
+        ? `<div class="stop-track-line" style="background:${color}88"></div>`
+        : `<div class="stop-track-line" style="background:transparent"></div>`;
+      const trackLineBelow = !isLast
+        ? `<div class="stop-track-line" style="background:${color}88"></div>`
+        : `<div class="stop-track-line" style="background:transparent"></div>`;
+      const dotStyle = isOrigin
+        ? `background:#fff;border-color:${color};`
+        : `background:${color};border-color:#fff;`;
+
+      return `
+        <div class="stop-row${isOrigin ? " active" : ""}"
+             data-stop-id="${s.id}"
+             data-route-idx="${idx}"
+             onclick="activateStop('${s.id}', ${idx})">
+          <div class="stop-track">
+            ${trackLineAbove}
+            <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
+            ${trackLineBelow}
+          </div>
+          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
+        </div>`;
+    }).join("");
 
     return `
-      <div class="conn-item" data-idx="${idx}" onclick="highlightItem(${idx})">
-        <div class="conn-name">
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#38bdf8;margin-right:6px;vertical-align:middle;"></span>
-          ${c.name}
-        </div>
-        <div class="conn-meta">
-          ${lines}
-        </div>
-      </div>`;
+      <details class="route-section" id="route-${idx}">
+        <summary class="route-summary">
+          <div class="route-swatch" style="background:${color}"></div>
+          <span class="route-label">${label}</span>
+          <span class="route-count">${stopCount} stops</span>
+          <span class="route-chevron">▶</span>
+        </summary>
+        <div class="stop-list">${stopsHtml}</div>
+      </details>`;
   }).join("");
+
+  // Close all other accordions when one opens
+  connList.querySelectorAll("details.route-section").forEach(det => {
+    det.addEventListener("toggle", () => {
+      if (det.open) {
+        connList.querySelectorAll("details.route-section").forEach(other => {
+          if (other !== det) other.open = false;
+        });
+      }
+    });
+  });
 }
 
-function buildPopup(c) {
-  const lines = c.lines.join(", ") || "—";
-  return `
-    <strong>${c.name}</strong><br>
-    Lines: ${lines}
-  `;
-}
-
-// ── Highlight on click ────────────────────────────────────────────────────────
-function highlightItem(idx) {
-  // Sidebar
-  if (activeConnItem) activeConnItem.classList.remove("active");
-  const el = connList.querySelector(`[data-idx="${idx}"]`);
-  if (el) {
-    el.classList.add("active");
-    el.scrollIntoView({ block: "nearest" });
-    activeConnItem = el;
+// ── Activate a stop from sidebar click ───────────────────────────────────────
+// routeIdx is the specific accordion to open (the one that was clicked).
+function activateStop(stopId, routeIdx) {
+  // Highlight the clicked row
+  if (activeStopRow) activeStopRow.classList.remove("active");
+  const row = connList.querySelector(
+    `[data-stop-id="${CSS.escape(stopId)}"][data-route-idx="${routeIdx}"]`
+  );
+  if (row) {
+    row.classList.add("active");
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    activeStopRow = row;
   }
-  // Map
-  const found = connectionMarkers.find(m => m.idx === idx);
+
+  // Pan map to this stop's marker
+  const found = stopMarkers.find(m => m.stopId === stopId);
   if (found) {
-    found.marker.openPopup();
     map.panTo(found.marker.getLatLng(), { animate: true });
+  } else if (selectedStation && stopId === selectedStation.id) {
+    map.panTo([selectedStation.lat, selectedStation.lon], { animate: true });
+  }
+}
+
+// ── Open a route accordion from a popup link ─────────────────────────────────
+function openRouteAccordion(routeIdx) {
+  const details = document.getElementById(`route-${routeIdx}`);
+  if (details) {
+    details.open = true;
+    details.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function clearMap() {
   if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
-  connectionMarkers.forEach(({ marker }) => map.removeLayer(marker));
-  connectionMarkers = [];
+  stopMarkers.forEach(({ marker }) => map.removeLayer(marker));
+  stopMarkers = [];
   routePolylines.forEach(p => map.removeLayer(p));
   routePolylines = [];
-  activeConnItem = null;
+  activeStopRow = null;
+  stopRouteMap = {};
 }
 
 function showStatus(msg, type = "") {
