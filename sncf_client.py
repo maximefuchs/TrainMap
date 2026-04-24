@@ -216,6 +216,24 @@ def _process_route_schedules(
         last_dep = _parse_navitia_time(origin_times_hhmm[-1])
         frequency = len(origin_times_hhmm)
 
+        # Choose a representative trip column for path building.
+        # We pick the trip that serves the most downstream stops so the drawn
+        # polyline follows one physically coherent journey (avoids cross-branch
+        # connections when a route has multiple terminal variants).
+        all_origin_dts = origin_row.get("date_times", [])
+        n_trips = len(all_origin_dts)
+        trip_downstream_count = [0] * n_trips
+        for j in range(origin_idx + 1, len(rows)):
+            dest_dts = rows[j].get("date_times", [])
+            for k in range(min(n_trips, len(dest_dts))):
+                if dest_dts[k].get("date_time", ""):
+                    trip_downstream_count[k] += 1
+        rep_col = (
+            trip_downstream_count.index(max(trip_downstream_count))
+            if n_trips > 0
+            else 0
+        )
+
         # Build the ordered stop list for this route (from origin onwards).
         # The origin stop itself is always the first entry.
         origin_sp = rows[origin_idx].get("stop_point", {})
@@ -242,9 +260,15 @@ def _process_route_schedules(
             if not dest_sa_id or dest_sa_id == origin_sa_id:
                 continue
 
+            dest_raw_dts = dest_row.get("date_times", [])
+            # Only consider this stop served by the representative trip for path building
+            rep_col_served = rep_col < len(dest_raw_dts) and bool(
+                dest_raw_dts[rep_col].get("date_time", "")
+            )
+
             dest_times = [
                 _extract_time_part(dt.get("date_time", ""))
-                for dt in dest_row.get("date_times", [])
+                for dt in dest_raw_dts
                 if dt.get("date_time", "")
             ]
             if not dest_times:
@@ -302,15 +326,17 @@ def _process_route_schedules(
                 ):
                     existing["last_departure"] = last_dep
 
-            # Accumulate stop in the path
-            path_stops.append(
-                {
-                    "id": dest_sa_id,
-                    "name": dest_name,
-                    "lat": float(dest_coord.get("lat", 0)),
-                    "lon": float(dest_coord.get("lon", 0)),
-                }
-            )
+            # Accumulate stop in the path — only for the representative trip,
+            # so the polyline stays geographically coherent (no cross-branch jumps).
+            if rep_col_served:
+                path_stops.append(
+                    {
+                        "id": dest_sa_id,
+                        "name": dest_name,
+                        "lat": float(dest_coord.get("lat", 0)),
+                        "lon": float(dest_coord.get("lon", 0)),
+                    }
+                )
 
         # Register the route path, keyed by its stop sequence to deduplicate.
         # Stops with no valid coordinates (0,0) are skipped from the path.
