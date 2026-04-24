@@ -49,6 +49,25 @@
       max-width: 400px;
     }
 
+    /* ── Date picker ─────────────────────────────────────────── */
+    #date-input {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #f1f5f9;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+      cursor: pointer;
+    }
+    #date-input:focus { border-color: #38bdf8; }
+    /* Style the calendar icon on dark inputs */
+    #date-input::-webkit-calendar-picker-indicator {
+      filter: invert(0.7);
+      cursor: pointer;
+    }
+
     #station-input {
       width: 100%;
       padding: 8px 14px;
@@ -230,6 +249,8 @@
     <div id="autocomplete"></div>
   </div>
 
+  <input id="date-input" type="date" title="Schedule date" />
+
   <span id="status">Enter a city to explore connections</span>
 </header>
 
@@ -274,6 +295,15 @@ const ac = document.getElementById("autocomplete");
 const status = document.getElementById("status");
 const connList = document.getElementById("connections-list");
 const connCount = document.getElementById("conn-count");
+const dateInput = document.getElementById("date-input");
+
+// Default date picker to today
+dateInput.value = new Date().toISOString().slice(0, 10);
+
+// Reload connections when date changes (if a station is already selected)
+dateInput.addEventListener("change", () => {
+  if (selectedStation) selectStation(selectedStation);
+});
 
 // ── Route color palette (distinct, readable on dark map) ─────────────────────
 const ROUTE_PALETTE = [
@@ -379,7 +409,10 @@ async function selectStation(station) {
   connCount.textContent = "0";
 
   try {
-    const r = await fetch(`/api/connections?station_id=${encodeURIComponent(station.id)}`);
+    const dateParam = dateInput.value
+      ? "&date=" + dateInput.value.replace(/-/g, "")
+      : "";
+    const r = await fetch(`/api/connections?station_id=${encodeURIComponent(station.id)}${dateParam}`);
     const data = await r.json();
     if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
 

@@ -1,11 +1,5 @@
 # TODO
 
-## Use data from multiple days
-Since routes can change from one day to another, check available routes for different dates.
-
-- a whole month?
-- a week during next month?
-
 ## Timetable data
 
 Add timetable fields (`duration_min`, `first_departure`, `last_departure`, `frequency`) to
@@ -20,6 +14,12 @@ durations for stations that come before the origin in the route order.
 
 - per type of train
 
-## Interactions
+## UX
 
 - when clicking on a line, remove (or light transparent) all the other lines
+- allow english/french
+- on the left, group the stops from a same line together. Create dropdown to see all the stops. When click on a stop on the map, the corresponding dropdown should open
+
+## UI
+
+- for small lines, only display the dots when the zoom is sufficient (otherwise, too many dots next to each other)

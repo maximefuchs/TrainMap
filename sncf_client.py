@@ -6,6 +6,7 @@ Coverage: sncf — national French train network (TGV, Intercités, TER, etc.)
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -26,8 +27,32 @@ TRAIN_MODES = [
 ]
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(auth=(TOKEN, ""), timeout=30)
+class _LoggingClient:
+    """Thin wrapper around httpx.Client that logs every GET request."""
+
+    def __init__(self, client: httpx.Client) -> None:
+        self._client = client
+
+    def get(self, url: str, **kwargs) -> httpx.Response:
+        params = kwargs.get("params", {})
+        param_str = " ".join(f"{k}={v}" for k, v in params.items()) if params else ""
+        label = url.replace(BASE_URL, "")
+        t0 = time.monotonic()
+        response = self._client.get(url, **kwargs)
+        elapsed = time.monotonic() - t0
+        print(f"[SNCF] GET {label}" + (f"  {param_str}" if param_str else "") + f" -> {response.status_code} ({elapsed:.2f}s)")
+        return response
+
+    def __enter__(self):
+        self._client = self._client.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._client.__exit__(*args)
+
+
+def _client() -> _LoggingClient:
+    return _LoggingClient(httpx.Client(auth=(TOKEN, ""), timeout=30))
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +107,16 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dic
         - line_code          : e.g. "TGV", "TER"
         - stops              : ordered list of {id, name, lat, lon}
                                (deduplicated — identical stop sequences are merged)
+
+    *date* is optional. When omitted the function queries from the current
+    datetime for the next 24 hours so results are fresh regardless of time of
+    day. Pass an explicit ``YYYYMMDD`` string to query a specific day (e.g.
+    from the UI date picker).
     """
     if date is None:
-        date = datetime.now().strftime("%Y%m%d")
+        from_datetime = datetime.now().strftime("%Y%m%dT%H%M%S")
+    else:
+        from_datetime = f"{date}T000000"
 
     # 1. Fetch all routes passing through this stop_area
     with _client() as client:
@@ -115,8 +147,8 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dic
     with _client() as client:
         for route_id in train_route_ids:
             params = {
-                "from_datetime": f"{date}T000000",
-                "duration": 86400,  # full day
+                "from_datetime": from_datetime,
+                "duration": 86400,  # 1 day for the selected date
                 "items_per_schedule": 500,
             }
             r = client.get(
