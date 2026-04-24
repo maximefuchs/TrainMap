@@ -140,6 +140,25 @@ def _stop_area_id_from_stop_point(stop_point: dict) -> str:
     return stop_point.get("stop_area", {}).get("id", "")
 
 
+def _parse_dt_to_seconds(dt_str: str) -> Optional[int]:
+    """
+    Parse a Navitia datetime string to seconds since midnight.
+
+    Accepts 'YYYYMMDDTHHmmss' or bare 'HHmmss'.  Returns None if the string
+    is missing or malformed.  Note: values ≥ 86400 are valid in Navitia for
+    trips that run past midnight (e.g. '251500' = 01:15 next day = 90900 s).
+    """
+    if not dt_str:
+        return None
+    part = dt_str.split("T")[1] if "T" in dt_str else dt_str
+    if len(part) < 6:
+        return None
+    try:
+        return int(part[:2]) * 3600 + int(part[2:4]) * 60 + int(part[4:6])
+    except (ValueError, IndexError):
+        return None
+
+
 def _process_route_schedules(
     schedules: list[dict],
     origin_sa_id: str,
@@ -170,7 +189,7 @@ def _process_route_schedules(
         rows = table.get("rows", [])
         line_code = schedule.get("display_informations", {}).get("code", "")
 
-        # Find the origin row index
+        # Find the origin row index (needed only to confirm the schedule is live)
         origin_idx = None
         for i, row in enumerate(rows):
             if _stop_area_id_from_stop_point(row.get("stop_point", {})) == origin_sa_id:
@@ -186,85 +205,80 @@ def _process_route_schedules(
         if not any(dt.get("date_time") for dt in origin_row.get("date_times", [])):
             continue
 
-        origin_sp = rows[origin_idx].get("stop_point", {})
-        origin_sa = origin_sp.get("stop_area", {})
-        origin_coord = origin_sa.get("coord", {})
+        # ------------------------------------------------------------------
+        # Pick the representative trip column: the one that serves the most
+        # stops across the *entire* route (not just downstream), so we get
+        # the most complete picture of the line.
+        # ------------------------------------------------------------------
+        all_dts = rows[origin_idx].get("date_times", [])
+        n_trips = len(all_dts)
+        trip_stop_count = [0] * n_trips
+        for row in rows:
+            for k, dt in enumerate(row.get("date_times", [])):
+                if k < n_trips and dt.get("date_time", ""):
+                    trip_stop_count[k] += 1
+        rep_col = trip_stop_count.index(max(trip_stop_count)) if n_trips > 0 else 0
 
         # ------------------------------------------------------------------
-        # Build the drawable path (upstream stops → origin → downstream stops)
-        # and register every stop in connections.
+        # Collect (departure_seconds, row_index) for every row the rep_col
+        # trip actually serves, then sort by time to get the correct stop
+        # order — Navitia row order alone is not always reliable.
         # ------------------------------------------------------------------
+        row_times: list[tuple[int, int]] = []
+        for i, row in enumerate(rows):
+            dts = row.get("date_times", [])
+            if rep_col < len(dts):
+                t = _parse_dt_to_seconds(dts[rep_col].get("date_time", ""))
+                if t is not None:
+                    row_times.append((t, i))
 
-        # seen_ids is seeded with only the origin.  Upstream IDs are NOT
-        # included so that legitimate downstream stops whose IDs also appear
-        # upstream are not blocked.  A repeat during the downstream scan means
-        # the route is doubling back; we break there.
-        seen_ids: set[str] = {origin_sa_id}
+        if not row_times:
+            continue
 
+        # Correct for past-midnight wraparound: the first decrease in time
+        # signals that subsequent stops are on the next calendar day.
+        for j in range(1, len(row_times)):
+            if row_times[j][0] < row_times[j - 1][0]:
+                for k in range(j, len(row_times)):
+                    row_times[k] = (row_times[k][0] + 86400, row_times[k][1])
+                break  # at most one midnight crossing per trip
+
+        row_times.sort(key=lambda x: x[0])
+
+        # ------------------------------------------------------------------
+        # Build the ordered stop list and register every stop in connections.
+        # Duplicates (same stop_area_id appearing twice in a route) are
+        # skipped after the first occurrence.
+        # ------------------------------------------------------------------
+        seen_ids: set[str] = set()
         stops: list[dict] = []
 
-        # --- Upstream stops (rows before origin, in route order) -----------
-        for i in range(origin_idx):
-            sp_i = rows[i].get("stop_point", {})
-            sa_i = sp_i.get("stop_area", {})
-            sa_id_i = sa_i.get("id", "")
-            if not sa_id_i:
+        for _, i in row_times:
+            row = rows[i]
+            sp = row.get("stop_point", {})
+            sa = sp.get("stop_area", {})
+            sa_id = sa.get("id", "")
+            if not sa_id or sa_id in seen_ids:
                 continue
-            coord_i = sa_i.get("coord", {})
+            seen_ids.add(sa_id)
+
+            coord = sa.get("coord", {})
             stop = {
-                "id": sa_id_i,
-                "name": sa_i.get("name", sp_i.get("name", "")),
-                "lat": float(coord_i.get("lat", 0)),
-                "lon": float(coord_i.get("lon", 0)),
+                "id": sa_id,
+                "name": sa.get("name", sp.get("name", "")),
+                "lat": float(coord.get("lat", 0)),
+                "lon": float(coord.get("lon", 0)),
             }
             stops.append(stop)
-            if sa_id_i not in connections:
-                connections[sa_id_i] = {
-                    **stop,
-                    "lines": [line_code] if line_code else [],
-                }
-            elif line_code and line_code not in connections[sa_id_i]["lines"]:
-                connections[sa_id_i]["lines"].append(line_code)
 
-        # --- Origin --------------------------------------------------------
-        stops.append(
-            {
-                "id": origin_sa_id,
-                "name": origin_sa.get("name", origin_sp.get("name", "")),
-                "lat": float(origin_coord.get("lat", 0)),
-                "lon": float(origin_coord.get("lon", 0)),
-            }
-        )
-
-        # --- Downstream stops ----------------------------------------------
-        for j in range(origin_idx + 1, len(rows)):
-            dest_row = rows[j]
-            dest_sp = dest_row.get("stop_point", {})
-            dest_sa = dest_sp.get("stop_area", {})
-            dest_sa_id = dest_sa.get("id", "")
-            dest_name = dest_sa.get("name", dest_sp.get("name", ""))
-            dest_coord = dest_sa.get("coord", {})
-
-            if not dest_sa_id:
-                continue
-            if dest_sa_id in seen_ids:
-                break  # route is doubling back — stop here
-
-            seen_ids.add(dest_sa_id)
-            stop = {
-                "id": dest_sa_id,
-                "name": dest_name,
-                "lat": float(dest_coord.get("lat", 0)),
-                "lon": float(dest_coord.get("lon", 0)),
-            }
-            stops.append(stop)
-            if dest_sa_id not in connections:
-                connections[dest_sa_id] = {
-                    **stop,
-                    "lines": [line_code] if line_code else [],
-                }
-            elif line_code and line_code not in connections[dest_sa_id]["lines"]:
-                connections[dest_sa_id]["lines"].append(line_code)
+            if sa_id != origin_sa_id:
+                if sa_id not in connections:
+                    connections[sa_id] = {
+                        **stop,
+                        "lines": [line_code] if line_code else [],
+                    }
+                elif line_code and line_code not in connections[sa_id]["lines"]:
+                    connections[sa_id]["lines"].append(line_code)
 
         # ------------------------------------------------------------------
         # Register the route path, deduplicated by stop-ID sequence.
