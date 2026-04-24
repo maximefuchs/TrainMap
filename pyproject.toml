@@ -1,0 +1,18 @@
+[project]
+name = "train-map"
+version = "0.1.0"
+description = "Interactive map of direct train connections in France, powered by the SNCF/Navitia API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "httpx>=0.25",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
