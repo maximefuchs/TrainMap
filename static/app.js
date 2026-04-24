@@ -252,11 +252,12 @@ function selectRoute(idx) {
   // Fit the map to the route
   map.fitBounds(routes[idx].poly.getBounds(), { padding: [60, 60] });
 
-  // Sync accordion: open this one, close siblings
+  // Sync accordion: open this one, close siblings, scroll into view
   const activeDet = document.getElementById(`route-${idx}`);
   connList.querySelectorAll("details.route-section").forEach(det => {
     det.open = (det === activeDet);
   });
+  if (activeDet) activeDet.scrollIntoView({ block: "nearest", behavior: "smooth" });
 
   _changingRoute = false;
 }
@@ -301,9 +302,12 @@ function activateStop(stopId, routeIdx) {
     row.scrollIntoView({ block: "nearest", behavior: "smooth" });
     activeStopRow = row;
   }
-  // Pan map to the corresponding marker if it's currently visible
+  // Pan map to the corresponding marker and open its popup
   const m = routes[routeIdx]?.markers.find(mk => mk._stopId === stopId);
-  if (m) map.panTo(m.getLatLng(), { animate: true });
+  if (m) {
+    map.panTo(m.getLatLng(), { animate: true });
+    m.openPopup();
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
