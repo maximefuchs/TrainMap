@@ -2,10 +2,11 @@
 SNCF API client using the Navitia platform (api.sncf.com).
 Coverage: sncf — national French train network (TGV, Intercités, TER, etc.)
 """
+
 from __future__ import annotations
 
 import os
-from datetime import datetime, time
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -33,6 +34,7 @@ def _client() -> httpx.Client:
 # Station search / autocomplete
 # ---------------------------------------------------------------------------
 
+
 def search_stations(query: str, count: int = 10) -> list[dict]:
     """
     Return a list of stop_area objects matching *query*.
@@ -52,18 +54,21 @@ def search_stations(query: str, count: int = 10) -> list[dict]:
     for p in places:
         sa = p.get("stop_area", {})
         coord = sa.get("coord", {})
-        results.append({
-            "id": p["id"],
-            "name": p["name"],
-            "lat": float(coord.get("lat", 0)),
-            "lon": float(coord.get("lon", 0)),
-        })
+        results.append(
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "lat": float(coord.get("lat", 0)),
+                "lon": float(coord.get("lon", 0)),
+            }
+        )
     return results
 
 
 # ---------------------------------------------------------------------------
 # Direct connections
 # ---------------------------------------------------------------------------
+
 
 def _parse_navitia_time(t: str) -> Optional[str]:
     """
@@ -76,17 +81,22 @@ def _parse_navitia_time(t: str) -> Optional[str]:
     return f"{h:02d}:{m:02d}"
 
 
-def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> list[dict]:
+def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dict:
     """
     Return all stations directly reachable (without transfer) from *stop_area_id*.
 
-    Each returned item:
-      - id, name, lat, lon      : destination station info
-      - duration_min            : fastest travel time in minutes
-      - first_departure         : HH:MM of first direct train today
-      - last_departure          : HH:MM of last direct train today
-      - frequency               : number of direct trains per day
-      - lines                   : list of line names / codes serving the connection
+    Returns a dict with:
+      connections: list of destination station dicts, each with:
+        - id, name, lat, lon      : destination station info
+        - duration_min            : fastest travel time in minutes
+        - first_departure         : HH:MM of first direct train today
+        - last_departure          : HH:MM of last direct train today
+        - frequency               : number of direct trains per day
+        - lines                   : list of line codes serving the connection
+      route_paths: list of route path dicts, each with:
+        - line_code               : e.g. "TGV", "TER"
+        - stops                   : ordered list of {id, name, lat, lon} from origin onwards
+                                    (deduplicated — identical stop sequences are merged)
     """
     if date is None:
         date = datetime.now().strftime("%Y%m%d")
@@ -109,11 +119,13 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> lis
             train_route_ids.append(route["id"])
 
     if not train_route_ids:
-        return []
+        return {"connections": [], "route_paths": []}
 
-    # 2. For each route, fetch route_schedules to get per-stop timetables
-    #    We aggregate: {destination_stop_area_id -> connection_info}
+    # 2. For each route, fetch route_schedules to get per-stop timetables.
+    #    connections  : {stop_area_id -> aggregated connection info}
+    #    route_paths  : {stop_sequence_key -> route path} — deduplicated by stop sequence
     connections: dict[str, dict] = {}
+    route_paths: dict[tuple, dict] = {}
 
     with _client() as client:
         for route_id in train_route_ids:
@@ -130,9 +142,12 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> lis
                 continue
 
             schedules = r.json().get("route_schedules", [])
-            _process_route_schedules(schedules, stop_area_id, connections)
+            _process_route_schedules(schedules, stop_area_id, connections, route_paths)
 
-    return sorted(connections.values(), key=lambda x: x["duration_min"])
+    return {
+        "connections": sorted(connections.values(), key=lambda x: x["duration_min"]),
+        "route_paths": list(route_paths.values()),
+    }
 
 
 def _stop_area_id_from_stop_point(stop_point: dict) -> str:
@@ -144,6 +159,7 @@ def _process_route_schedules(
     schedules: list[dict],
     origin_sa_id: str,
     connections: dict[str, dict],
+    route_paths: dict[tuple, dict],
 ) -> None:
     """
     Parse Navitia route_schedule objects.
@@ -159,13 +175,14 @@ def _process_route_schedules(
       2. For every subsequent row (downstream stops), compute travel time as
          min over all trips of (downstream_departure - origin_departure).
       3. Record first_departure, last_departure, frequency from the origin row.
+      4. Collect the ordered stop sequence (from origin onwards) as a route_path.
+         Deduplicate by the tuple of stop_area ids so identical routes aren't drawn twice.
     """
     for schedule in schedules:
         table = schedule.get("table", {})
         rows = table.get("rows", [])
         line = schedule.get("display_informations", {})
         line_code = line.get("code", "")
-        line_name = line.get("network", "") + " " + line_code
 
         # Find the origin row index
         origin_idx = None
@@ -179,7 +196,7 @@ def _process_route_schedules(
             continue
 
         origin_row = rows[origin_idx]
-        # Collect departure times for origin (list of 'HHMMSS' strings)
+        # Collect departure times for origin (list of 'YYYYMMDDTHHmmss' strings)
         origin_times = [
             dt.get("date_time", "")
             for dt in origin_row.get("date_times", [])
@@ -188,19 +205,30 @@ def _process_route_schedules(
         if not origin_times:
             continue
 
-        # First/last departure from origin (raw Navitia times = 'YYYYMMDDTHHmmss')
         def _extract_time_part(dt_str: str) -> str:
             # Navitia datetime: '20240101T143000' -> '143000'
             if "T" in dt_str:
                 return dt_str.split("T")[1]
             return dt_str
 
-        origin_times_hhmm = sorted(
-            [_extract_time_part(t) for t in origin_times]
-        )
+        origin_times_hhmm = sorted([_extract_time_part(t) for t in origin_times])
         first_dep = _parse_navitia_time(origin_times_hhmm[0])
         last_dep = _parse_navitia_time(origin_times_hhmm[-1])
         frequency = len(origin_times_hhmm)
+
+        # Build the ordered stop list for this route (from origin onwards).
+        # The origin stop itself is always the first entry.
+        origin_sp = rows[origin_idx].get("stop_point", {})
+        origin_sa = origin_sp.get("stop_area", {})
+        origin_coord = origin_sa.get("coord", {})
+        path_stops = [
+            {
+                "id": origin_sa_id,
+                "name": origin_sa.get("name", origin_sp.get("name", "")),
+                "lat": float(origin_coord.get("lat", 0)),
+                "lon": float(origin_coord.get("lon", 0)),
+            }
+        ]
 
         # Downstream stops
         for j in range(origin_idx + 1, len(rows)):
@@ -222,7 +250,7 @@ def _process_route_schedules(
             if not dest_times:
                 continue
 
-            # Compute min travel time across all trips (same column = same trip)
+            # Compute min travel time across all trips (same column index = same trip)
             min_duration = None
             for k, orig_t in enumerate(origin_times_hhmm):
                 if k >= len(dest_times):
@@ -244,6 +272,7 @@ def _process_route_schedules(
 
             duration_min = min_duration // 60
 
+            # Accumulate connection info
             if dest_sa_id not in connections:
                 connections[dest_sa_id] = {
                     "id": dest_sa_id,
@@ -262,8 +291,36 @@ def _process_route_schedules(
                 existing["frequency"] = max(existing["frequency"], frequency)
                 if line_code and line_code not in existing["lines"]:
                     existing["lines"].append(line_code)
-                # Keep earliest first and latest last departure
-                if first_dep and (not existing["first_departure"] or first_dep < existing["first_departure"]):
+                if first_dep and (
+                    not existing["first_departure"]
+                    or first_dep < existing["first_departure"]
+                ):
                     existing["first_departure"] = first_dep
-                if last_dep and (not existing["last_departure"] or last_dep > existing["last_departure"]):
+                if last_dep and (
+                    not existing["last_departure"]
+                    or last_dep > existing["last_departure"]
+                ):
                     existing["last_departure"] = last_dep
+
+            # Accumulate stop in the path
+            path_stops.append(
+                {
+                    "id": dest_sa_id,
+                    "name": dest_name,
+                    "lat": float(dest_coord.get("lat", 0)),
+                    "lon": float(dest_coord.get("lon", 0)),
+                }
+            )
+
+        # Register the route path, keyed by its stop sequence to deduplicate.
+        # Stops with no valid coordinates (0,0) are skipped from the path.
+        path_stops_valid = [s for s in path_stops if s["lat"] != 0 or s["lon"] != 0]
+        if len(path_stops_valid) < 2:
+            continue
+
+        seq_key = tuple(s["id"] for s in path_stops_valid)
+        if seq_key not in route_paths:
+            route_paths[seq_key] = {
+                "line_code": line_code,
+                "stops": path_stops_valid,
+            }

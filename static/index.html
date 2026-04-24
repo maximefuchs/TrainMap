@@ -186,6 +186,19 @@
     .leaflet-popup-content { margin: 10px 14px; font-size: 0.88rem; line-height: 1.6; }
     .leaflet-popup-content strong { color: #38bdf8; }
 
+    /* Route polyline tooltip */
+    .route-tooltip {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #f1f5f9;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      box-shadow: none;
+    }
+    .route-tooltip::before { display: none; }
+
     /* ── Duration color scale legend ─────────────────────────── */
     #legend {
       position: absolute;
@@ -254,12 +267,13 @@
   <div id="map"></div>
 
   <div id="legend">
-    <strong>Travel time</strong>
+    <strong>Marker — travel time</strong>
     <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> &lt; 1 h</div>
     <div class="legend-row"><div class="legend-dot" style="background:#eab308"></div> 1 – 2 h</div>
     <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> 2 – 3 h</div>
     <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> 3 – 4 h</div>
     <div class="legend-row"><div class="legend-dot" style="background:#a855f7"></div> &gt; 4 h</div>
+    <strong style="margin-top:10px;display:block;">Line — one color per route</strong>
   </div>
 </main>
 
@@ -275,7 +289,7 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
 // ── State ────────────────────────────────────────────────────────────────────
 let originMarker = null;
 let connectionMarkers = [];
-let connectionLines = [];
+let routePolylines = [];   // one Leaflet polyline per deduplicated route path
 let selectedStation = null;
 let activeConnItem = null;
 let debounceTimer = null;
@@ -287,7 +301,25 @@ const status = document.getElementById("status");
 const connList = document.getElementById("connections-list");
 const connCount = document.getElementById("conn-count");
 
-// ── Duration → color ─────────────────────────────────────────────────────────
+// ── Route color palette (distinct, readable on dark map) ─────────────────────
+const ROUTE_PALETTE = [
+  "#38bdf8", // sky blue
+  "#f472b6", // pink
+  "#a78bfa", // violet
+  "#34d399", // emerald
+  "#fbbf24", // amber
+  "#fb923c", // orange
+  "#e879f9", // fuchsia
+  "#4ade80", // green
+  "#f87171", // red
+  "#60a5fa", // blue
+];
+
+function routeColor(idx) {
+  return ROUTE_PALETTE[idx % ROUTE_PALETTE.length];
+}
+
+// ── Duration → color (for markers only) ──────────────────────────────────────
 function durationColor(min) {
   if (min < 60)  return "#22c55e";
   if (min < 120) return "#eab308";
@@ -392,38 +424,51 @@ async function selectStation(station) {
     if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
 
     const conns = data.connections || [];
+    const paths = data.route_paths || [];
     showStatus(`${conns.length} direct connections found`, "ok");
     connCount.textContent = conns.length;
-    renderConnections(station, conns);
+    renderConnections(station, conns, paths);
   } catch (e) {
-    showStatus("Network error", "error");
+    console.error("selectStation error:", e);
+    showStatus(`Error: ${e.message}`, "error");
   }
 }
-
-// ── Render results ────────────────────────────────────────────────────────────
-function renderConnections(origin, conns) {
+function renderConnections(origin, conns, paths) {
   if (!conns.length) {
     connList.innerHTML = `<div id="empty-state"><p>No direct train connections found.</p></div>`;
     return;
   }
 
-  // Draw map markers + lines
+  // Draw one polyline per route path (connecting all stops of the same train in order)
+  paths.forEach((path, idx) => {
+    const color = routeColor(idx);
+    const latlngs = path.stops.map(s => [s.lat, s.lon]);
+
+    const poly = L.polyline(latlngs, {
+      color,
+      weight: 3,
+      opacity: 0.75,
+    }).addTo(map);
+
+    poly.bindTooltip(path.line_code || "Train", {
+      sticky: true,
+      className: "route-tooltip",
+    });
+
+    // Highlight on hover
+    poly.on("mouseover", () => poly.setStyle({ weight: 5, opacity: 1 }));
+    poly.on("mouseout",  () => poly.setStyle({ weight: 3, opacity: 0.75 }));
+
+    routePolylines.push(poly);
+  });
+
+  // Draw destination markers (color = travel duration from origin)
   conns.forEach((c, idx) => {
     const color = durationColor(c.duration_min);
-
-    // Polyline from origin to destination
-    const line = L.polyline(
-      [[origin.lat, origin.lon], [c.lat, c.lon]],
-      { color, weight: 1.5, opacity: 0.45, dashArray: "4 6" }
-    ).addTo(map);
-    connectionLines.push(line);
-
-    // Destination marker
     const marker = L.marker([c.lat, c.lon], { icon: circleIcon(color) })
       .addTo(map)
       .bindPopup(buildPopup(c));
     connectionMarkers.push({ marker, conn: c, idx });
-
     marker.on("click", () => highlightItem(idx));
   });
 
@@ -493,8 +538,8 @@ function clearMap() {
   if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
   connectionMarkers.forEach(({ marker }) => map.removeLayer(marker));
   connectionMarkers = [];
-  connectionLines.forEach(l => map.removeLayer(l));
-  connectionLines = [];
+  routePolylines.forEach(p => map.removeLayer(p));
+  routePolylines = [];
   activeConnItem = null;
 }
 

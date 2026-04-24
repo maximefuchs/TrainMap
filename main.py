@@ -1,4 +1,5 @@
 """FastAPI backend for the Train Map application."""
+
 from __future__ import annotations
 
 import os
@@ -27,7 +28,9 @@ async def index():
 
 
 @app.get("/api/stations")
-async def search_stations(q: str = Query(..., min_length=2, description="Search query")):
+async def search_stations(
+    q: str = Query(..., min_length=2, description="Search query"),
+):
     """Autocomplete station names. Returns list of {id, name, lat, lon}."""
     if not sncf_client.TOKEN:
         raise HTTPException(
@@ -58,8 +61,12 @@ async def get_connections(
             detail="SNCF_API_TOKEN not configured. Add your token to .env file.",
         )
     try:
-        connections = sncf_client.get_direct_connections(station_id, date=date)
-        return {"connections": connections, "count": len(connections)}
+        result = sncf_client.get_direct_connections(station_id, date=date)
+        return {
+            "connections": result["connections"],
+            "route_paths": result["route_paths"],
+            "count": len(result["connections"]),
+        }
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
             raise HTTPException(status_code=401, detail="Invalid SNCF API token.")
