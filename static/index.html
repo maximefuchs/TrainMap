@@ -266,6 +266,7 @@
     .leaflet-popup-tip { background: #1e293b; }
     .leaflet-popup-content { margin: 10px 14px; font-size: 0.88rem; line-height: 1.6; }
     .leaflet-popup-content strong { color: #38bdf8; }
+    .leaflet-popup-content a:hover { text-decoration: underline !important; }
 
     /* Route polyline tooltip */
     .route-tooltip {
@@ -528,8 +529,24 @@ function renderConnections(origin, conns, paths) {
         icon: circleIcon(color),
         zIndexOffset: 0,
       }).addTo(map);
-      marker.bindPopup(`<strong>${s.name}</strong>`);
-      marker.on("click", () => activateStop(s.id));
+      // Popup content is built lazily on first open so stopRouteMap is fully populated
+      marker.on("click", () => {
+        const routeIndices = stopRouteMap[s.id] || [];
+        const lineLinks = routeIndices.map(ri => {
+          const p = paths[ri];
+          const lc = p.line_code || "Train";
+          const fn = p.stops[0]?.name || "";
+          const ln = p.stops[p.stops.length - 1]?.name || "";
+          const c  = routeColor(ri);
+          return `<div style="margin-top:5px">
+            <a href="#" onclick="openRouteAccordion(${ri});return false;"
+               style="color:${c};text-decoration:none;font-weight:600">
+              ▶ ${fn} — ${ln} <span style="opacity:.7">(${lc})</span>
+            </a>
+          </div>`;
+        }).join("");
+        marker.bindPopup(`<strong>${s.name}</strong>${lineLinks}`).openPopup();
+      });
       markerByStopId[s.id] = marker;
       stopMarkers.push({ marker, stopId: s.id });
     });
@@ -538,8 +555,11 @@ function renderConnections(origin, conns, paths) {
   // Build sidebar accordions
   connList.innerHTML = paths.map((path, idx) => {
     const color = routeColor(idx);
-    const label = path.line_code || "Train";
     const stopCount = path.stops.length;
+    const firstName = path.stops[0]?.name || "";
+    const lastName  = path.stops[stopCount - 1]?.name || "";
+    const lineCode  = path.line_code || "Train";
+    const label = `${firstName} — ${lastName} <span style="opacity:.6;font-weight:400">(${lineCode})</span>`;
 
     const stopsHtml = path.stops.map((s, si) => {
       const isOrigin = s.id === origin.id;
@@ -559,7 +579,7 @@ function renderConnections(origin, conns, paths) {
         <div class="stop-row${isOrigin ? " active" : ""}"
              data-stop-id="${s.id}"
              data-route-idx="${idx}"
-             onclick="activateStop('${s.id}')">
+             onclick="activateStop('${s.id}', ${idx})">
           <div class="stop-track">
             ${trackLineAbove}
             <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
@@ -582,20 +602,14 @@ function renderConnections(origin, conns, paths) {
   }).join("");
 }
 
-// ── Activate a stop (from map click or sidebar click) ────────────────────────
-function activateStop(stopId) {
-  // Remove previous highlight
+// ── Activate a stop from sidebar click ───────────────────────────────────────
+// routeIdx is the specific accordion to open (the one that was clicked).
+function activateStop(stopId, routeIdx) {
+  // Highlight the clicked row
   if (activeStopRow) activeStopRow.classList.remove("active");
-
-  // Open all route accordions that contain this stop and highlight the row
-  const routeIndices = stopRouteMap[stopId] || [];
-  routeIndices.forEach(idx => {
-    const details = document.getElementById(`route-${idx}`);
-    if (details) details.open = true;
-  });
-
-  // Highlight the first matching row (pick the first route that has it)
-  const row = connList.querySelector(`[data-stop-id="${CSS.escape(stopId)}"]`);
+  const row = connList.querySelector(
+    `[data-stop-id="${CSS.escape(stopId)}"][data-route-idx="${routeIdx}"]`
+  );
   if (row) {
     row.classList.add("active");
     row.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -605,11 +619,18 @@ function activateStop(stopId) {
   // Pan map to this stop's marker
   const found = stopMarkers.find(m => m.stopId === stopId);
   if (found) {
-    found.marker.openPopup();
     map.panTo(found.marker.getLatLng(), { animate: true });
   } else if (selectedStation && stopId === selectedStation.id) {
-    originMarker && originMarker.openPopup();
     map.panTo([selectedStation.lat, selectedStation.lon], { animate: true });
+  }
+}
+
+// ── Open a route accordion from a popup link ─────────────────────────────────
+function openRouteAccordion(routeIdx) {
+  const details = document.getElementById(`route-${routeIdx}`);
+  if (details) {
+    details.open = true;
+    details.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 }
 
