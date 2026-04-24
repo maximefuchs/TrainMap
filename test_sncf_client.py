@@ -180,26 +180,8 @@ class TestSearchStations:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _parse_navitia_time
+# Tests: _parse_navitia_time — kept for when timetables are re-added
 # ---------------------------------------------------------------------------
-
-
-class TestParseNavitiaTime:
-    def test_normal_time(self):
-        assert sncf_client._parse_navitia_time("143000") == "14:30"
-
-    def test_midnight(self):
-        assert sncf_client._parse_navitia_time("000000") == "00:00"
-
-    def test_past_midnight_wraps(self):
-        # 25:15:00 means 01:15 next day
-        assert sncf_client._parse_navitia_time("251500") == "01:15"
-
-    def test_empty_returns_none(self):
-        assert sncf_client._parse_navitia_time("") is None
-
-    def test_short_string_returns_none(self):
-        assert sncf_client._parse_navitia_time("123") is None
 
 
 # ---------------------------------------------------------------------------
@@ -244,60 +226,6 @@ class TestGetDirectConnections:
         ids = {c["id"] for c in result["connections"]}
         assert "stop_area:SNCF:87686006" in ids  # Lyon
         assert "stop_area:SNCF:87751008" in ids  # Marseille
-
-    def test_duration_is_correct(self):
-        """Lyon should be 120 min from Paris (07:00 → 09:00)."""
-        with patch("sncf_client.httpx.Client") as MockClient:
-            self._setup_mock_client(MockClient)
-            result = self._get_result(MockClient)
-
-        lyon = next(
-            c for c in result["connections"] if c["id"] == "stop_area:SNCF:87686006"
-        )
-        assert lyon["duration_min"] == 120
-
-    def test_marseille_duration(self):
-        """Marseille should be 240 min from Paris (07:00 → 11:00)."""
-        with patch("sncf_client.httpx.Client") as MockClient:
-            self._setup_mock_client(MockClient)
-            result = self._get_result(MockClient)
-
-        marseille = next(
-            c for c in result["connections"] if c["id"] == "stop_area:SNCF:87751008"
-        )
-        assert marseille["duration_min"] == 240
-
-    def test_frequency_count(self):
-        """Frequency should reflect number of trains (2 in fixture)."""
-        with patch("sncf_client.httpx.Client") as MockClient:
-            self._setup_mock_client(MockClient)
-            result = self._get_result(MockClient)
-
-        lyon = next(
-            c for c in result["connections"] if c["id"] == "stop_area:SNCF:87686006"
-        )
-        assert lyon["frequency"] == 2
-
-    def test_first_and_last_departure(self):
-        """First departure should be 07:00, last 09:00."""
-        with patch("sncf_client.httpx.Client") as MockClient:
-            self._setup_mock_client(MockClient)
-            result = self._get_result(MockClient)
-
-        lyon = next(
-            c for c in result["connections"] if c["id"] == "stop_area:SNCF:87686006"
-        )
-        assert lyon["first_departure"] == "07:00"
-        assert lyon["last_departure"] == "09:00"
-
-    def test_sorted_by_duration(self):
-        """Results should be sorted by travel time ascending."""
-        with patch("sncf_client.httpx.Client") as MockClient:
-            self._setup_mock_client(MockClient)
-            result = self._get_result(MockClient)
-
-        durations = [c["duration_min"] for c in result["connections"]]
-        assert durations == sorted(durations)
 
     def test_line_codes_included(self):
         with patch("sncf_client.httpx.Client") as MockClient:

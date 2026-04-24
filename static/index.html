@@ -199,23 +199,6 @@
     }
     .route-tooltip::before { display: none; }
 
-    /* ── Duration color scale legend ─────────────────────────── */
-    #legend {
-      position: absolute;
-      bottom: 30px;
-      right: 10px;
-      z-index: 1000;
-      background: rgba(30,41,59,0.92);
-      border: 1px solid #334155;
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 0.78rem;
-      color: #94a3b8;
-    }
-    #legend strong { display: block; color: #f1f5f9; margin-bottom: 6px; }
-    .legend-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-
     /* ── Empty state ─────────────────────────────────────────── */
     #empty-state {
       display: flex;
@@ -266,15 +249,6 @@
 
   <div id="map"></div>
 
-  <div id="legend">
-    <strong>Marker — travel time</strong>
-    <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> &lt; 1 h</div>
-    <div class="legend-row"><div class="legend-dot" style="background:#eab308"></div> 1 – 2 h</div>
-    <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> 2 – 3 h</div>
-    <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> 3 – 4 h</div>
-    <div class="legend-row"><div class="legend-dot" style="background:#a855f7"></div> &gt; 4 h</div>
-    <strong style="margin-top:10px;display:block;">Line — one color per route</strong>
-  </div>
 </main>
 
 <script>
@@ -317,20 +291,6 @@ const ROUTE_PALETTE = [
 
 function routeColor(idx) {
   return ROUTE_PALETTE[idx % ROUTE_PALETTE.length];
-}
-
-// ── Duration → color (for markers only) ──────────────────────────────────────
-function durationColor(min) {
-  if (min < 60)  return "#22c55e";
-  if (min < 120) return "#eab308";
-  if (min < 180) return "#f97316";
-  if (min < 240) return "#ef4444";
-  return "#a855f7";
-}
-
-function fmtDuration(min) {
-  const h = Math.floor(min / 60), m = min % 60;
-  return h > 0 ? `${h}h${m > 0 ? m + "min" : ""}` : `${m} min`;
 }
 
 function circleIcon(color) {
@@ -462,10 +422,9 @@ function renderConnections(origin, conns, paths) {
     routePolylines.push(poly);
   });
 
-  // Draw destination markers (color = travel duration from origin)
+  // Draw destination markers
   conns.forEach((c, idx) => {
-    const color = durationColor(c.duration_min);
-    const marker = L.marker([c.lat, c.lon], { icon: circleIcon(color) })
+    const marker = L.marker([c.lat, c.lon], { icon: circleIcon("#38bdf8") })
       .addTo(map)
       .bindPopup(buildPopup(c));
     connectionMarkers.push({ marker, conn: c, idx });
@@ -474,27 +433,17 @@ function renderConnections(origin, conns, paths) {
 
   // Sidebar list
   connList.innerHTML = conns.map((c, idx) => {
-    const color = durationColor(c.duration_min);
     const lines = c.lines.slice(0, 4).map(l =>
       `<span class="badge badge-line">${l}</span>`
     ).join("");
-    const timeInfo = (c.first_departure && c.last_departure)
-      ? `<span class="badge badge-time">⏱ ${c.first_departure} → ${c.last_departure}</span>`
-      : "";
-    const freq = c.frequency
-      ? `<span class="badge badge-freq">${c.frequency} trains/day</span>`
-      : "";
 
     return `
       <div class="conn-item" data-idx="${idx}" onclick="highlightItem(${idx})">
         <div class="conn-name">
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle;"></span>
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#38bdf8;margin-right:6px;vertical-align:middle;"></span>
           ${c.name}
         </div>
         <div class="conn-meta">
-          <span class="badge badge-dur">${fmtDuration(c.duration_min)}</span>
-          ${freq}
-          ${timeInfo}
           ${lines}
         </div>
       </div>`;
@@ -503,14 +452,8 @@ function renderConnections(origin, conns, paths) {
 
 function buildPopup(c) {
   const lines = c.lines.join(", ") || "—";
-  const time = (c.first_departure && c.last_departure)
-    ? `${c.first_departure} → ${c.last_departure}`
-    : "—";
   return `
     <strong>${c.name}</strong><br>
-    Duration: ${fmtDuration(c.duration_min)}<br>
-    Trains/day: ${c.frequency || "—"}<br>
-    First → Last: ${time}<br>
     Lines: ${lines}
   `;
 }
