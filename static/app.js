@@ -7,49 +7,41 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
 }).addTo(map);
 
 // ── State ────────────────────────────────────────────────────────────────────
-let originMarker = null;
-let stopMarkers = [];        // { marker, stopId, routeIndices[] }
-let routePolylines = [];     // one Leaflet polyline per route path
+let originMarker  = null;
 let selectedStation = null;
-let activeStopRow = null;
-let debounceTimer = null;
+let activeStopRow   = null;
+let debounceTimer   = null;
 
-// stopId → array of route indices that include this stop
-let stopRouteMap = {};
+// Built once per search result; one entry per route path.
+// { poly: L.Polyline, markers: L.Marker[], color: string }
+let routes = [];
+
+// Index of the currently highlighted route, or null.
+let activeRouteIdx = null;
+
+// Re-entrancy guard: prevents toggle listeners from calling selectRoute/
+// deselectRoute while we are already in the middle of one.
+let _changingRoute = false;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
-const input = document.getElementById("station-input");
-const ac = document.getElementById("autocomplete");
-const status = document.getElementById("status");
-const connList = document.getElementById("connections-list");
+const input     = document.getElementById("station-input");
+const ac        = document.getElementById("autocomplete");
+const status    = document.getElementById("status");
+const connList  = document.getElementById("connections-list");
 const connCount = document.getElementById("conn-count");
 const dateInput = document.getElementById("date-input");
 
-// Default date picker to today
 dateInput.value = new Date().toISOString().slice(0, 10);
-
-// Reload connections when date changes (if a station is already selected)
 dateInput.addEventListener("change", () => {
   if (selectedStation) selectStation(selectedStation);
 });
 
-// ── Route color palette (distinct, readable on dark map) ─────────────────────
+// ── Route color palette ───────────────────────────────────────────────────────
 const ROUTE_PALETTE = [
-  "#38bdf8", // sky blue
-  "#f472b6", // pink
-  "#a78bfa", // violet
-  "#34d399", // emerald
-  "#fbbf24", // amber
-  "#fb923c", // orange
-  "#e879f9", // fuchsia
-  "#4ade80", // green
-  "#f87171", // red
-  "#60a5fa", // blue
+  "#38bdf8", "#f472b6", "#a78bfa", "#34d399", "#fbbf24",
+  "#fb923c", "#e879f9", "#4ade80", "#f87171", "#60a5fa",
 ];
-
-function routeColor(idx) {
-  return ROUTE_PALETTE[idx % ROUTE_PALETTE.length];
-}
+function routeColor(idx) { return ROUTE_PALETTE[idx % ROUTE_PALETTE.length]; }
 
 function circleIcon(color) {
   return L.divIcon({
@@ -82,38 +74,29 @@ input.addEventListener("input", () => {
   if (q.length < 2) { ac.style.display = "none"; return; }
   debounceTimer = setTimeout(() => fetchSuggestions(q), 250);
 });
-
-input.addEventListener("blur", () => setTimeout(() => { ac.style.display = "none"; }, 150));
+input.addEventListener("blur",  () => setTimeout(() => { ac.style.display = "none"; }, 150));
 input.addEventListener("focus", () => { if (ac.innerHTML) ac.style.display = "block"; });
 
 async function fetchSuggestions(q) {
   try {
-    const r = await fetch(`/api/stations?q=${encodeURIComponent(q)}`);
+    const r    = await fetch(`/api/stations?q=${encodeURIComponent(q)}`);
     const data = await r.json();
     if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
     renderSuggestions(data.stations || []);
-  } catch (e) {
-    showStatus("Network error", "error");
-  }
+  } catch (e) { showStatus("Network error", "error"); }
 }
 
 function renderSuggestions(stations) {
   if (!stations.length) { ac.style.display = "none"; return; }
   ac.innerHTML = stations.map(s =>
-    `<div class="ac-item" data-id="${s.id}" data-name="${s.name}" data-lat="${s.lat}" data-lon="${s.lon}">
-      ${s.name}
-    </div>`
+    `<div class="ac-item" data-id="${s.id}" data-name="${s.name}"
+          data-lat="${s.lat}" data-lon="${s.lon}">${s.name}</div>`
   ).join("");
   ac.style.display = "block";
-
   ac.querySelectorAll(".ac-item").forEach(el => {
     el.addEventListener("mousedown", () => {
-      selectStation({
-        id: el.dataset.id,
-        name: el.dataset.name,
-        lat: parseFloat(el.dataset.lat),
-        lon: parseFloat(el.dataset.lon),
-      });
+      selectStation({ id: el.dataset.id, name: el.dataset.name,
+                      lat: parseFloat(el.dataset.lat), lon: parseFloat(el.dataset.lon) });
       input.value = el.dataset.name;
       ac.style.display = "none";
     });
@@ -125,22 +108,18 @@ async function selectStation(station) {
   selectedStation = station;
   clearMap();
 
-  // Place origin marker
   originMarker = L.marker([station.lat, station.lon], { icon: originIcon, zIndexOffset: 1000 })
     .addTo(map)
     .bindPopup(`<strong>${station.name}</strong><br>Origin station`);
 
   map.setView([station.lat, station.lon], 7, { animate: true });
-
   showStatus("Loading connections…", "loading");
   connList.innerHTML = `<div id="empty-state"><p>Loading…</p></div>`;
   connCount.textContent = "0";
 
   try {
-    const dateParam = dateInput.value
-      ? "&date=" + dateInput.value.replace(/-/g, "")
-      : "";
-    const r = await fetch(`/api/connections?station_id=${encodeURIComponent(station.id)}${dateParam}`);
+    const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
+    const r    = await fetch(`/api/connections?station_id=${encodeURIComponent(station.id)}${dateParam}`);
     const data = await r.json();
     if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
 
@@ -148,76 +127,56 @@ async function selectStation(station) {
     const paths = data.route_paths || [];
     showStatus(`${conns.length} direct connections found`, "ok");
     connCount.textContent = `${paths.length} route${paths.length !== 1 ? "s" : ""}`;
-    renderConnections(station, conns, paths);
+    renderConnections(station, paths);
   } catch (e) {
     console.error("selectStation error:", e);
     showStatus(`Error: ${e.message}`, "error");
   }
 }
 
-function renderConnections(origin, conns, paths) {
+// ── Render routes ─────────────────────────────────────────────────────────────
+function renderConnections(origin, paths) {
   if (!paths.length) {
     connList.innerHTML = `<div id="empty-state"><p>No direct train connections found.</p></div>`;
     return;
   }
 
-  // Build stopId → [routeIdx, …] index
-  stopRouteMap = {};
-  paths.forEach((path, idx) => {
-    path.stops.forEach(s => {
-      if (!stopRouteMap[s.id]) stopRouteMap[s.id] = [];
-      if (!stopRouteMap[s.id].includes(idx)) stopRouteMap[s.id].push(idx);
-    });
-  });
-
-  // Draw polylines + markers, one pass per route
-  // Collect unique stops across all routes for marker deduplication
-  const markerByStopId = {};
-
-  paths.forEach((path, idx) => {
-    const color = routeColor(idx);
+  routes = paths.map((path, idx) => {
+    const color   = routeColor(idx);
     const latlngs = path.stops.map(s => [s.lat, s.lon]);
 
+    // Polyline — clicking selects the route
     const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
     poly.bindTooltip(path.line_code || "Train", { sticky: true, className: "route-tooltip" });
-    poly.on("mouseover", () => poly.setStyle({ weight: 5, opacity: 1 }));
-    poly.on("mouseout",  () => poly.setStyle({ weight: 3, opacity: 0.75 }));
-    routePolylines.push(poly);
+    poly.on("click", () => selectRoute(idx));
 
-    path.stops.forEach(s => {
-      if (markerByStopId[s.id]) return; // already placed by an earlier route
-      const isOrigin = s.id === origin.id;
-      if (isOrigin) return; // origin has its own marker
-      const marker = L.marker([s.lat, s.lon], {
-        icon: circleIcon(color),
-        zIndexOffset: 0,
-      }).addTo(map);
-      // Popup content is built lazily on first open so stopRouteMap is fully populated
-      marker.on("click", () => {
-        const routeIndices = stopRouteMap[s.id] || [];
-        const lineLinks = routeIndices.map(ri => {
-          const p = paths[ri];
-          const lc = p.line_code || "Train";
-          const fn = p.stops[0]?.name || "";
-          const ln = p.stops[p.stops.length - 1]?.name || "";
-          const c  = routeColor(ri);
-          return `<div style="margin-top:5px">
-            <a href="#" onclick="openRouteAccordion(${ri});return false;"
-               style="color:${c};text-decoration:none;font-weight:600">
-              ▶ ${fn} — ${ln} <span style="opacity:.7">(${lc})</span>
-            </a>
-          </div>`;
-        }).join("");
-        marker.bindPopup(`<strong>${s.name}</strong>${lineLinks}`).openPopup();
+    // Markers — created but NOT added to map until the route is selected
+    const markers = path.stops
+      .filter(s => s.id !== origin.id)
+      .map(s => {
+        const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
+        m._stopId = s.id;
+        m.bindPopup(`<strong>${s.name}</strong>`);
+        m.on("click", () => {
+          if (activeStopRow) activeStopRow.classList.remove("active");
+          const row = connList.querySelector(
+            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
+          );
+          if (row) {
+            row.classList.add("active");
+            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            activeStopRow = row;
+          }
+        });
+        return m;
       });
-      markerByStopId[s.id] = marker;
-      stopMarkers.push({ marker, stopId: s.id });
-    });
+
+    return { poly, markers, color, path };
   });
 
-  // Build sidebar accordions
+  // ── Sidebar accordions ────────────────────────────────────────────────────
   connList.innerHTML = paths.map((path, idx) => {
-    const color = routeColor(idx);
+    const color     = routeColor(idx);
     const stopCount = path.stops.length;
     const firstName = path.stops[0]?.name || "";
     const lastName  = path.stops[stopCount - 1]?.name || "";
@@ -226,27 +185,22 @@ function renderConnections(origin, conns, paths) {
 
     const stopsHtml = path.stops.map((s, si) => {
       const isOrigin = s.id === origin.id;
-      const isFirst = si === 0;
-      const isLast  = si === stopCount - 1;
-      const trackLineAbove = !isFirst
-        ? `<div class="stop-track-line" style="background:${color}88"></div>`
-        : `<div class="stop-track-line" style="background:transparent"></div>`;
-      const trackLineBelow = !isLast
-        ? `<div class="stop-track-line" style="background:${color}88"></div>`
-        : `<div class="stop-track-line" style="background:transparent"></div>`;
-      const dotStyle = isOrigin
+      const isFirst  = si === 0;
+      const isLast   = si === stopCount - 1;
+      const lineAbove = isFirst ? "transparent" : `${color}88`;
+      const lineBelow = isLast  ? "transparent" : `${color}88`;
+      const dotStyle  = isOrigin
         ? `background:#fff;border-color:${color};`
         : `background:${color};border-color:#fff;`;
 
       return `
         <div class="stop-row${isOrigin ? " active" : ""}"
-             data-stop-id="${s.id}"
-             data-route-idx="${idx}"
+             data-stop-id="${s.id}" data-route-idx="${idx}"
              onclick="activateStop('${s.id}', ${idx})">
           <div class="stop-track">
-            ${trackLineAbove}
+            <div class="stop-track-line" style="background:${lineAbove}"></div>
             <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
-            ${trackLineBelow}
+            <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
           <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
         </div>`;
@@ -264,22 +218,73 @@ function renderConnections(origin, conns, paths) {
       </details>`;
   }).join("");
 
-  // Close all other accordions when one opens
-  connList.querySelectorAll("details.route-section").forEach(det => {
+  // Accordion toggle → select / deselect route
+  connList.querySelectorAll("details.route-section").forEach((det, idx) => {
     det.addEventListener("toggle", () => {
+      if (_changingRoute) return;
       if (det.open) {
-        connList.querySelectorAll("details.route-section").forEach(other => {
-          if (other !== det) other.open = false;
-        });
+        selectRoute(idx);
+      } else if (activeRouteIdx === idx) {
+        deselectRoute();
       }
     });
   });
 }
 
-// ── Activate a stop from sidebar click ───────────────────────────────────────
-// routeIdx is the specific accordion to open (the one that was clicked).
+// ── Route selection ───────────────────────────────────────────────────────────
+function selectRoute(idx) {
+  if (_changingRoute || activeRouteIdx === idx) return;
+  _changingRoute = true;
+  activeRouteIdx = idx;
+
+  // Highlight the active polyline, dim all others
+  routes.forEach((r, i) => {
+    r.poly.setStyle(i === idx
+      ? { weight: 4, opacity: 1 }
+      : { weight: 2, opacity: 0.2 }
+    );
+  });
+
+  // Swap markers: remove all, add this route's
+  routes.forEach(r => r.markers.forEach(m => map.removeLayer(m)));
+  routes[idx].markers.forEach(m => m.addTo(map));
+
+  // Fit the map to the route
+  map.fitBounds(routes[idx].poly.getBounds(), { padding: [60, 60] });
+
+  // Sync accordion: open this one, close siblings
+  const activeDet = document.getElementById(`route-${idx}`);
+  connList.querySelectorAll("details.route-section").forEach(det => {
+    det.open = (det === activeDet);
+  });
+
+  _changingRoute = false;
+}
+
+function deselectRoute() {
+  if (_changingRoute) return;
+  _changingRoute = true;
+  activeRouteIdx = null;
+
+  // Restore all polylines
+  routes.forEach(r => r.poly.setStyle({ weight: 3, opacity: 0.75 }));
+
+  // Hide all markers
+  routes.forEach(r => r.markers.forEach(m => map.removeLayer(m)));
+
+  // Close all accordions
+  connList.querySelectorAll("details.route-section").forEach(d => { d.open = false; });
+
+  _changingRoute = false;
+}
+
+// ── Open a route accordion from a map popup link ──────────────────────────────
+function openRouteAccordion(idx) {
+  selectRoute(idx);
+}
+
+// ── Activate a stop row from sidebar click ────────────────────────────────────
 function activateStop(stopId, routeIdx) {
-  // Highlight the clicked row
   if (activeStopRow) activeStopRow.classList.remove("active");
   const row = connList.querySelector(
     `[data-stop-id="${CSS.escape(stopId)}"][data-route-idx="${routeIdx}"]`
@@ -289,37 +294,25 @@ function activateStop(stopId, routeIdx) {
     row.scrollIntoView({ block: "nearest", behavior: "smooth" });
     activeStopRow = row;
   }
-
-  // Pan map to this stop's marker
-  const found = stopMarkers.find(m => m.stopId === stopId);
-  if (found) {
-    map.panTo(found.marker.getLatLng(), { animate: true });
-  } else if (selectedStation && stopId === selectedStation.id) {
-    map.panTo([selectedStation.lat, selectedStation.lon], { animate: true });
-  }
-}
-
-// ── Open a route accordion from a popup link ─────────────────────────────────
-function openRouteAccordion(routeIdx) {
-  const details = document.getElementById(`route-${routeIdx}`);
-  if (details) {
-    details.open = true;
-    details.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
+  // Pan map to the corresponding marker if it's currently visible
+  const m = routes[routeIdx]?.markers.find(mk => mk._stopId === stopId);
+  if (m) map.panTo(m.getLatLng(), { animate: true });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function clearMap() {
   if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
-  stopMarkers.forEach(({ marker }) => map.removeLayer(marker));
-  stopMarkers = [];
-  routePolylines.forEach(p => map.removeLayer(p));
-  routePolylines = [];
-  activeStopRow = null;
-  stopRouteMap = {};
+  routes.forEach(r => {
+    map.removeLayer(r.poly);
+    r.markers.forEach(m => map.removeLayer(m));
+  });
+  routes        = [];
+  activeRouteIdx  = null;
+  activeStopRow   = null;
+  _changingRoute  = false;
 }
 
 function showStatus(msg, type = "") {
   status.textContent = msg;
-  status.className = type;
+  status.className   = type;
 }
