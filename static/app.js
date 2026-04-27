@@ -41,21 +41,82 @@ const fabCount     = document.getElementById("fab-count");
 const sidebarClose = document.getElementById("sidebar-close");
 const backdrop     = document.getElementById("sidebar-backdrop");
 
-// ── Mobile sidebar sheet ──────────────────────────────────────────────────────
-function openSidebar()  {
-  sidebar.classList.add("open");
-  backdrop.classList.add("visible");
-  sidebarFab.classList.add("hidden");
+const sidebarHandle = document.getElementById("sidebar-handle");
+
+// ── Mobile sidebar sheet (closed → peek → open) ───────────────────────────────
+function isMobile() { return window.matchMedia("(max-width: 600px)").matches; }
+
+function sidebarState() {
+  if (sidebar.classList.contains("open"))  return "open";
+  if (sidebar.classList.contains("peek"))  return "peek";
+  return "closed";
 }
-function closeSidebar() {
-  sidebar.classList.remove("open");
+
+function setSidebar(state) {
+  sidebar.classList.remove("open", "peek");
   backdrop.classList.remove("visible");
   sidebarFab.classList.remove("hidden");
+  if (state === "open") {
+    sidebar.classList.add("open");
+    backdrop.classList.add("visible");
+    sidebarFab.classList.add("hidden");
+  } else if (state === "peek") {
+    sidebar.classList.add("peek");
+    sidebarFab.classList.add("hidden");
+  }
 }
+
+function openSidebar()  { setSidebar("open"); }
+function peekSidebar()  { setSidebar("peek"); }
+function closeSidebar() { setSidebar("closed"); }
+
+// Handle tap: peek → open, open → closed
+sidebarHandle.addEventListener("click", () => {
+  if (sidebarState() === "peek") openSidebar();
+  else closeSidebar();
+});
 
 sidebarFab.addEventListener("click", openSidebar);
 sidebarClose.addEventListener("click", closeSidebar);
 backdrop.addEventListener("click", closeSidebar);
+
+// Touch-drag on handle to resize / close
+(function () {
+  let startY = 0, startedAt = "";
+  const PEEK_OFFSET = 72; // must match CSS calc(100% - 72px)
+
+  sidebarHandle.addEventListener("touchstart", (e) => {
+    startY    = e.touches[0].clientY;
+    startedAt = sidebarState();
+    sidebar.style.transition = "none";
+  }, { passive: true });
+
+  sidebarHandle.addEventListener("touchmove", (e) => {
+    const dy       = e.touches[0].clientY - startY;
+    const sheetH   = sidebar.offsetHeight;
+    // base offset in px from bottom
+    const baseOffset = startedAt === "open" ? 0 : sheetH - PEEK_OFFSET;
+    const raw = Math.max(0, Math.min(sheetH, baseOffset + dy));
+    sidebar.style.transform = `translateY(${raw}px)`;
+  }, { passive: true });
+
+  sidebarHandle.addEventListener("touchend", (e) => {
+    sidebar.style.transition = "";
+    sidebar.style.transform  = "";
+    const dy     = e.changedTouches[0].clientY - startY;
+    const sheetH = sidebar.offsetHeight;
+    const SNAP   = sheetH * 0.25;  // 25% of sheet height to snap
+
+    if (startedAt === "open") {
+      setSidebar(dy > SNAP ? "closed" : "open");
+    } else {
+      // was peek
+      if (dy < -SNAP)      setSidebar("open");
+      else if (dy > SNAP)  setSidebar("closed");
+      else                 setSidebar("peek");
+    }
+  });
+})();
 
 // ── i18n application ──────────────────────────────────────────────────────────
 function applyLang() {
@@ -203,8 +264,8 @@ async function selectStation(station) {
     connCount.textContent = routeLabel;
     fabCount.textContent  = paths.length;
     renderConnections(station, paths);
-    // On mobile, auto-open the sidebar once results are in
-    if (window.matchMedia("(max-width: 600px)").matches) openSidebar();
+    // On mobile, peek the sidebar so the map stays mostly visible
+    if (isMobile()) peekSidebar();
   });
 
   es.addEventListener("error", (e) => {
@@ -321,6 +382,9 @@ function selectRoute(idx) {
   if (_changingRoute || activeRouteIdx === idx) return;
   _changingRoute = true;
   activeRouteIdx = idx;
+
+  // On mobile, peek the sidebar so the user knows results are there
+  if (isMobile() && sidebarState() === "closed") peekSidebar();
 
   // Highlight the active polyline, dim all others
   routes.forEach((r, i) => {

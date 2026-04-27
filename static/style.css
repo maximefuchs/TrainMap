@@ -358,36 +358,46 @@ path.leaflet-interactive:focus { outline: none; }
   /* Map fills the whole main area */
   #map { flex: 1; }
 
-  /* Sidebar becomes a bottom sheet */
+  /* Sidebar becomes a bottom sheet — three states: hidden / peek / open */
   #sidebar {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
     width: 100%;
-    height: 75vh;
+    height: 55vh;
     border-right: none;
     border-top: 1px solid #334155;
     border-radius: 16px 16px 0 0;
     transform: translateY(100%);
     transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 500;
-    /* Override the flex layout so it stacks inside main */
     flex-shrink: 0;
   }
+  /* peek: just the handle + header visible (~72px) */
+  #sidebar.peek { transform: translateY(calc(100% - 72px)); }
   #sidebar.open { transform: translateY(0); }
 
-  /* Drag handle pill */
+  /* Drag handle — large tap target, pill drawn via ::before */
   #sidebar-handle {
-    display: block;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 28px;
+    flex-shrink: 0;
+    cursor: pointer;
+    touch-action: none;
+  }
+  #sidebar-handle::before {
+    content: '';
     width: 40px;
     height: 4px;
     background: #475569;
     border-radius: 2px;
-    margin: 10px auto 0;
-    flex-shrink: 0;
-    cursor: grab;
+    transition: background 0.15s;
   }
+  #sidebar-handle:hover::before,
+  #sidebar-handle:active::before { background: #94a3b8; }
 
   /* Close button inside the sidebar header */
   #sidebar-header {
