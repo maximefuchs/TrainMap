@@ -14,9 +14,7 @@ durations for stations that come before the origin in the route order.
 
 - per type of train
 
-## UX
+## UI / UX
 
-- allow english/french
-
-## UI
+- responsive
 
