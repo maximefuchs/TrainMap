@@ -102,6 +102,25 @@ header h1 span { color: #38bdf8; }
 #status.loading { color: #facc15; }
 #status.ok { color: #4ade80; }
 
+/* ── Language dropdown ───────────────────────────────────── */
+#lang-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+#lang-select {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+#lang-select:hover, #lang-select:focus { border-color: #38bdf8; }
+
 /* ── Progress bar ────────────────────────────────────────── */
 #progress-bar-wrap {
   height: 3px;

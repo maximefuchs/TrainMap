@@ -24,14 +24,39 @@ let activeRouteIdx = null;
 let _changingRoute = false;
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
-const input     = document.getElementById("station-input");
-const ac        = document.getElementById("autocomplete");
-const status    = document.getElementById("status");
-const connList  = document.getElementById("connections-list");
-const connCount = document.getElementById("conn-count");
-const dateInput = document.getElementById("date-input");
+const input        = document.getElementById("station-input");
+const ac           = document.getElementById("autocomplete");
+const status       = document.getElementById("status");
+const connList     = document.getElementById("connections-list");
+const connCount    = document.getElementById("conn-count");
+const sidebarLabel = document.getElementById("sidebar-label");
+const emptyText    = document.getElementById("empty-state-text");
+const dateInput    = document.getElementById("date-input");
 const progressWrap = document.getElementById("progress-bar-wrap");
 const progressBar  = document.getElementById("progress-bar");
+const langSelect   = document.getElementById("lang-select");
+
+// ── i18n application ──────────────────────────────────────────────────────────
+function applyLang() {
+  document.documentElement.lang = currentLang;
+  document.title                = t("pageTitle");
+  input.placeholder             = t("searchPlaceholder");
+  dateInput.title               = t("dateTitle");
+  sidebarLabel.textContent      = t("sidebarHeader");
+  emptyText.textContent         = t("emptyStateText");
+
+  // Status: only update the default message, not an active loading/error state
+  if (!status.className || status.className === "") {
+    status.textContent = t("statusDefault");
+  }
+
+  langSelect.value = currentLang;
+}
+
+langSelect.addEventListener("change", () => { setLang(langSelect.value); applyLang(); });
+
+// Apply on load
+applyLang();
 
 function setProgress(current, total) {
   if (total === 0) return;
@@ -127,11 +152,11 @@ async function selectStation(station) {
 
   originMarker = L.marker([station.lat, station.lon], { icon: originIcon, zIndexOffset: 1000 })
     .addTo(map)
-    .bindPopup(`<strong>${station.name}</strong><br>Origin station`);
+    .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   map.setView([station.lat, station.lon], 7, { animate: true });
-  showStatus("Loading connections…", "loading");
-  connList.innerHTML = `<div id="empty-state"><p>Loading…</p></div>`;
+  showStatus(t("loadingConnections"), "loading");
+  connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
   connCount.textContent = "0";
 
   const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
@@ -142,7 +167,7 @@ async function selectStation(station) {
   es.addEventListener("progress", (e) => {
     const { current, total, message } = JSON.parse(e.data);
     setProgress(current, total);
-    showStatus(message, "loading");
+    showStatus(t("loadingProgress", current, total), "loading");
   });
 
   es.addEventListener("done", (e) => {
@@ -151,8 +176,8 @@ async function selectStation(station) {
     const data = JSON.parse(e.data);
     const conns = data.connections || [];
     const paths = data.route_paths || [];
-    showStatus(`${conns.length} direct connections found`, "ok");
-    connCount.textContent = `${paths.length} route${paths.length !== 1 ? "s" : ""}`;
+    showStatus(t("connectionsFound", conns.length), "ok");
+    connCount.textContent = t("routeCount", paths.length);
     renderConnections(station, paths);
   });
 
@@ -161,9 +186,9 @@ async function selectStation(station) {
     hideProgress();
     if (e.data) {
       const { detail } = JSON.parse(e.data);
-      showStatus(`Error: ${detail}`, "error");
+      showStatus(`${t("errorPrefix")}: ${detail}`, "error");
     } else {
-      showStatus("Connection error", "error");
+      showStatus(t("connectionError"), "error");
     }
   });
 }
@@ -171,7 +196,7 @@ async function selectStation(station) {
 // ── Render routes ─────────────────────────────────────────────────────────────
 function renderConnections(origin, paths) {
   if (!paths.length) {
-    connList.innerHTML = `<div id="empty-state"><p>No direct train connections found.</p></div>`;
+    connList.innerHTML = `<div id="empty-state"><p>${t("noConnections")}</p></div>`;
     return;
   }
 
@@ -181,7 +206,7 @@ function renderConnections(origin, paths) {
 
     // Polyline — clicking selects the route
     const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
-    poly.bindTooltip(path.line_code || "Train", { sticky: true, className: "route-tooltip" });
+    poly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
     poly.on("click", () => selectRoute(idx));
 
     // Markers — created but NOT added to map until the route is selected
@@ -214,7 +239,7 @@ function renderConnections(origin, paths) {
     const stopCount = path.stops.length;
     const firstName = path.stops[0]?.name || "";
     const lastName  = path.stops[stopCount - 1]?.name || "";
-    const lineCode  = path.line_code || "Train";
+    const lineCode  = path.line_code || t("trainFallback");
     const label = `${firstName} — ${lastName} <span style="opacity:.6;font-weight:400">(${lineCode})</span>`;
 
     const stopsHtml = path.stops.map((s, si) => {
@@ -245,7 +270,7 @@ function renderConnections(origin, paths) {
         <summary class="route-summary">
           <div class="route-swatch" style="background:${color}"></div>
           <span class="route-label">${label}</span>
-          <span class="route-count">${stopCount} stops</span>
+          <span class="route-count">${t("stopCount", stopCount)}</span>
           <span class="route-chevron">▶</span>
         </summary>
         <div class="stop-list">${stopsHtml}</div>

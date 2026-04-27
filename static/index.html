@@ -29,6 +29,13 @@
   <input id="date-input" type="date" title="Schedule date" />
 
   <span id="status">Enter a city to explore connections</span>
+
+  <div id="lang-toggle">
+    <select id="lang-select" aria-label="Language">
+      <option value="en">🌐 EN</option>
+      <option value="fr">🌐 FR</option>
+    </select>
+  </div>
 </header>
 
 <div id="progress-bar-wrap" hidden>
@@ -37,14 +44,14 @@
 
 <main>
   <aside id="sidebar">
-    <div id="sidebar-header">Routes — <span id="conn-count">0</span></div>
+    <div id="sidebar-header"><span id="sidebar-label">Routes</span> — <span id="conn-count">0</span></div>
     <div id="connections-list">
       <div id="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 2C7 2 3 6 3 11c0 5.25 9 13 9 13s9-7.75 9-13c0-5-4-9-9-9z"/>
           <circle cx="12" cy="11" r="3"/>
         </svg>
-        <p>Search for a station above to see all cities reachable by direct train.</p>
+        <p id="empty-state-text">Search for a station above to see all cities reachable by direct train.</p>
       </div>
     </div>
   </aside>
@@ -53,6 +60,7 @@
 
 </main>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
