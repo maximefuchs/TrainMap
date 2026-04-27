@@ -1,0 +1,320 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Top bar ─────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+  z-index: 1000;
+}
+
+header h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+header h1 span { color: #38bdf8; }
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 400px;
+}
+
+/* ── Date picker ─────────────────────────────────────────── */
+#date-input {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+#date-input:focus { border-color: #38bdf8; }
+#date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+#station-input {
+  width: 100%;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+#station-input:focus { border-color: #38bdf8; }
+#station-input::placeholder { color: #64748b; }
+
+#autocomplete {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  z-index: 9999;
+  max-height: 240px;
+  overflow-y: auto;
+  display: none;
+}
+
+.ac-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #1e293b;
+  transition: background 0.15s;
+}
+.ac-item:hover { background: #0ea5e9; color: #fff; }
+.ac-item:last-child { border-bottom: none; }
+
+#status {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+#status.error { color: #f87171; }
+#status.loading { color: #facc15; }
+#status.ok { color: #4ade80; }
+
+/* ── Language dropdown ───────────────────────────────────── */
+#lang-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+#lang-select {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+#lang-select:hover, #lang-select:focus { border-color: #38bdf8; }
+
+/* ── Progress bar ────────────────────────────────────────── */
+#progress-bar-wrap {
+  height: 3px;
+  background: #1e293b;
+  flex-shrink: 0;
+}
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  transition: width 0.3s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Main layout ─────────────────────────────────────────── */
+main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+#sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  background: #1e293b;
+  border-right: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#sidebar-header {
+  padding: 14px 16px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+#connections-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+/* ── Route accordion ─────────────────────────────────────── */
+.route-section {
+  border-bottom: 1px solid #0f172a;
+}
+
+.route-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background 0.15s;
+}
+.route-summary::-webkit-details-marker { display: none; }
+.route-summary:hover { background: #0f172a; }
+
+.route-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.route-label {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #f1f5f9;
+  flex: 1;
+}
+
+.route-count {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.route-chevron {
+  font-size: 0.7rem;
+  color: #64748b;
+  transition: transform 0.2s;
+}
+details[open] .route-chevron { transform: rotate(90deg); }
+
+/* ── Stop list inside accordion ──────────────────────────── */
+.stop-list {
+  padding: 4px 0 8px 0;
+}
+
+.stop-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.stop-row:hover { background: #0f172a; }
+.stop-row.active { background: #0c4a6e; }
+
+/* Vertical track column */
+.stop-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+.stop-track-line {
+  width: 2px;
+  flex: 1;
+  min-height: 8px;
+}
+.stop-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.stop-dot.origin {
+  width: 14px;
+  height: 14px;
+  border-width: 3px;
+}
+
+.stop-name {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  padding: 5px 0;
+  line-height: 1.3;
+}
+.stop-name.origin {
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+/* ── Map ─────────────────────────────────────────────────── */
+#map {
+  flex: 1;
+  z-index: 0;
+}
+
+/* Leaflet popup override */
+.leaflet-popup-content-wrapper {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 10px;
+  border: 1px solid #334155;
+}
+.leaflet-popup-tip { background: #1e293b; }
+.leaflet-popup-content { margin: 10px 14px; font-size: 0.88rem; line-height: 1.6; }
+.leaflet-popup-content strong { color: #38bdf8; }
+.leaflet-popup-content a:hover { text-decoration: underline !important; }
+
+/* Remove the browser focus outline Leaflet shows on clicked SVG paths */
+path.leaflet-interactive:focus { outline: none; }
+
+/* Route polyline tooltip */
+.route-tooltip {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.route-tooltip::before { display: none; }
+
+/* ── Empty state ─────────────────────────────────────────── */
+#empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #475569;
+  gap: 8px;
+  text-align: center;
+  padding: 20px;
+}
+#empty-state svg { opacity: 0.3; }
+#empty-state p { font-size: 0.85rem; }

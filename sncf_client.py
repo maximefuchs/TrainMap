@@ -40,7 +40,11 @@ class _LoggingClient:
         t0 = time.monotonic()
         response = self._client.get(url, **kwargs)
         elapsed = time.monotonic() - t0
-        print(f"[SNCF] GET {label}" + (f"  {param_str}" if param_str else "") + f" -> {response.status_code} ({elapsed:.2f}s)")
+        print(
+            f"[SNCF] GET {label}"
+            + (f"  {param_str}" if param_str else "")
+            + f" -> {response.status_code} ({elapsed:.2f}s)"
+        )
         return response
 
     def __enter__(self):
@@ -95,7 +99,11 @@ def search_stations(query: str, count: int = 10) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dict:
+def get_direct_connections(
+    stop_area_id: str,
+    date: Optional[str] = None,
+    progress_callback=None,
+) -> dict:
     """
     Return all stations reachable on the same route as *stop_area_id*.
 
@@ -138,6 +146,10 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dic
     if not train_route_ids:
         return {"connections": [], "route_paths": []}
 
+    total_routes = len(train_route_ids)
+    if progress_callback:
+        progress_callback(0, total_routes, "Fetching route schedules…")
+
     # 2. For each route fetch the schedule to get the ordered stop list.
     #    connections : {stop_area_id -> station info}
     #    route_paths : {stop_sequence_key -> route path} — deduplicated
@@ -145,7 +157,7 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dic
     route_paths: dict[tuple, dict] = {}
 
     with _client() as client:
-        for route_id in train_route_ids:
+        for idx, route_id in enumerate(train_route_ids):
             params = {
                 "from_datetime": from_datetime,
                 "duration": 86400,  # 1 day for the selected date
@@ -160,6 +172,11 @@ def get_direct_connections(stop_area_id: str, date: Optional[str] = None) -> dic
 
             schedules = r.json().get("route_schedules", [])
             _process_route_schedules(schedules, stop_area_id, connections, route_paths)
+
+            if progress_callback:
+                progress_callback(
+                    idx + 1, total_routes, f"Processed {idx + 1}/{total_routes} routes…"
+                )
 
     return {
         "connections": sorted(connections.values(), key=lambda x: x["name"]),
