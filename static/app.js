@@ -35,6 +35,27 @@ const dateInput    = document.getElementById("date-input");
 const progressWrap = document.getElementById("progress-bar-wrap");
 const progressBar  = document.getElementById("progress-bar");
 const langSelect   = document.getElementById("lang-select");
+const sidebar      = document.getElementById("sidebar");
+const sidebarFab   = document.getElementById("sidebar-fab");
+const fabCount     = document.getElementById("fab-count");
+const sidebarClose = document.getElementById("sidebar-close");
+const backdrop     = document.getElementById("sidebar-backdrop");
+
+// ── Mobile sidebar sheet ──────────────────────────────────────────────────────
+function openSidebar()  {
+  sidebar.classList.add("open");
+  backdrop.classList.add("visible");
+  sidebarFab.classList.add("hidden");
+}
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  backdrop.classList.remove("visible");
+  sidebarFab.classList.remove("hidden");
+}
+
+sidebarFab.addEventListener("click", openSidebar);
+sidebarClose.addEventListener("click", closeSidebar);
+backdrop.addEventListener("click", closeSidebar);
 
 // ── i18n application ──────────────────────────────────────────────────────────
 function applyLang() {
@@ -158,6 +179,7 @@ async function selectStation(station) {
   showStatus(t("loadingConnections"), "loading");
   connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
   connCount.textContent = "0";
+  fabCount.textContent  = "0";
 
   const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
   const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}${dateParam}`;
@@ -177,8 +199,12 @@ async function selectStation(station) {
     const conns = data.connections || [];
     const paths = data.route_paths || [];
     showStatus(t("connectionsFound", conns.length), "ok");
-    connCount.textContent = t("routeCount", paths.length);
+    const routeLabel = t("routeCount", paths.length);
+    connCount.textContent = routeLabel;
+    fabCount.textContent  = paths.length;
     renderConnections(station, paths);
+    // On mobile, auto-open the sidebar once results are in
+    if (window.matchMedia("(max-width: 600px)").matches) openSidebar();
   });
 
   es.addEventListener("error", (e) => {

@@ -318,3 +318,144 @@ path.leaflet-interactive:focus { outline: none; }
 }
 #empty-state svg { opacity: 0.3; }
 #empty-state p { font-size: 0.85rem; }
+
+/* ── Mobile / tablet elements (hidden on desktop) ────────── */
+#sidebar-handle   { display: none; }
+#sidebar-close    { display: none; }
+#sidebar-fab      { display: none; }
+#sidebar-backdrop { display: none; }
+
+/* ── Tablet (≤ 900px) ────────────────────────────────────── */
+@media (max-width: 900px) {
+  #sidebar { width: 260px; }
+
+  /* Shrink / hide less critical header items */
+  #status { display: none; }
+}
+
+/* ── Mobile (≤ 600px) ────────────────────────────────────── */
+@media (max-width: 600px) {
+  /* Header: two-row layout */
+  header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  header h1   { flex: 1; }
+  #lang-toggle { margin-left: 0; }  /* lang stays on row 1 after title */
+
+  .search-wrap {
+    order: 2;
+    flex: 1 1 100%;    /* takes full second row */
+    max-width: 100%;
+  }
+  #date-input {
+    order: 3;
+    flex: 1 1 100%;    /* below search on its own row */
+    font-size: 0.85rem;
+  }
+
+  /* Map fills the whole main area */
+  #map { flex: 1; }
+
+  /* Sidebar becomes a bottom sheet */
+  #sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 75vh;
+    border-right: none;
+    border-top: 1px solid #334155;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 500;
+    /* Override the flex layout so it stacks inside main */
+    flex-shrink: 0;
+  }
+  #sidebar.open { transform: translateY(0); }
+
+  /* Drag handle pill */
+  #sidebar-handle {
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: #475569;
+    border-radius: 2px;
+    margin: 10px auto 0;
+    flex-shrink: 0;
+    cursor: grab;
+  }
+
+  /* Close button inside the sidebar header */
+  #sidebar-header {
+    display: flex;
+    align-items: center;
+  }
+  #sidebar-close {
+    display: block;
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+  }
+  #sidebar-close:hover { color: #e2e8f0; }
+
+  /* FAB — floating button to open the sidebar */
+  #sidebar-fab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 400;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    transition: background 0.15s, opacity 0.2s;
+    white-space: nowrap;
+  }
+  #sidebar-fab:hover { background: #334155; }
+  #sidebar-fab.hidden { opacity: 0; pointer-events: none; }
+
+  #fab-count {
+    background: #38bdf8;
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  /* Semi-transparent backdrop behind the open sheet */
+  #sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 490;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.32s;
+  }
+  #sidebar-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
