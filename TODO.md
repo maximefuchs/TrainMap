@@ -20,4 +20,3 @@ durations for stations that come before the origin in the route order.
 
 ## UI
 
-- show a progress bar when loading the routes

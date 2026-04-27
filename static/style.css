@@ -102,6 +102,20 @@ header h1 span { color: #38bdf8; }
 #status.loading { color: #facc15; }
 #status.ok { color: #4ade80; }
 
+/* ── Progress bar ────────────────────────────────────────── */
+#progress-bar-wrap {
+  height: 3px;
+  background: #1e293b;
+  flex-shrink: 0;
+}
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  transition: width 0.3s ease;
+  border-radius: 0 2px 2px 0;
+}
+
 /* ── Main layout ─────────────────────────────────────────── */
 main {
   display: flex;

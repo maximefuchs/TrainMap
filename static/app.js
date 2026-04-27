@@ -30,6 +30,23 @@ const status    = document.getElementById("status");
 const connList  = document.getElementById("connections-list");
 const connCount = document.getElementById("conn-count");
 const dateInput = document.getElementById("date-input");
+const progressWrap = document.getElementById("progress-bar-wrap");
+const progressBar  = document.getElementById("progress-bar");
+
+function setProgress(current, total) {
+  if (total === 0) return;
+  const pct = Math.round((current / total) * 100);
+  progressWrap.hidden = false;
+  progressBar.style.width = pct + "%";
+}
+
+function hideProgress() {
+  progressBar.style.width = "100%";
+  setTimeout(() => {
+    progressWrap.hidden = true;
+    progressBar.style.width = "0%";
+  }, 400);
+}
 
 dateInput.value = new Date().toISOString().slice(0, 10);
 dateInput.addEventListener("change", () => {
@@ -117,21 +134,38 @@ async function selectStation(station) {
   connList.innerHTML = `<div id="empty-state"><p>Loading…</p></div>`;
   connCount.textContent = "0";
 
-  try {
-    const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
-    const r    = await fetch(`/api/connections?station_id=${encodeURIComponent(station.id)}${dateParam}`);
-    const data = await r.json();
-    if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
+  const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
+  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}${dateParam}`;
 
+  const es = new EventSource(url);
+
+  es.addEventListener("progress", (e) => {
+    const { current, total, message } = JSON.parse(e.data);
+    setProgress(current, total);
+    showStatus(message, "loading");
+  });
+
+  es.addEventListener("done", (e) => {
+    es.close();
+    hideProgress();
+    const data = JSON.parse(e.data);
     const conns = data.connections || [];
     const paths = data.route_paths || [];
     showStatus(`${conns.length} direct connections found`, "ok");
     connCount.textContent = `${paths.length} route${paths.length !== 1 ? "s" : ""}`;
     renderConnections(station, paths);
-  } catch (e) {
-    console.error("selectStation error:", e);
-    showStatus(`Error: ${e.message}`, "error");
-  }
+  });
+
+  es.addEventListener("error", (e) => {
+    es.close();
+    hideProgress();
+    if (e.data) {
+      const { detail } = JSON.parse(e.data);
+      showStatus(`Error: ${detail}`, "error");
+    } else {
+      showStatus("Connection error", "error");
+    }
+  });
 }
 
 // ── Render routes ─────────────────────────────────────────────────────────────
