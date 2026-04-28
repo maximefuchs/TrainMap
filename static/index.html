@@ -43,8 +43,23 @@
 </div>
 
 <main>
+  <!-- Mobile fab to open the sidebar panel -->
+  <button id="sidebar-fab" aria-label="Show routes">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="3" y1="6"  x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+    <span id="fab-count">0</span>
+  </button>
+
   <aside id="sidebar">
-    <div id="sidebar-header"><span id="sidebar-label">Routes</span> — <span id="conn-count">0</span></div>
+    <!-- Drag handle (mobile only) -->
+    <div id="sidebar-handle"></div>
+    <div id="sidebar-header">
+      <span id="sidebar-label">Routes</span> — <span id="conn-count">0</span>
+      <button id="sidebar-close" aria-label="Close">✕</button>
+    </div>
     <div id="connections-list">
       <div id="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -58,6 +73,8 @@
 
   <div id="map"></div>
 
+  <!-- Backdrop for mobile sidebar -->
+  <div id="sidebar-backdrop"></div>
 </main>
 
 <script src="/static/i18n.js"></script>
