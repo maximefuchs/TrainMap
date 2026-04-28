@@ -196,6 +196,9 @@ input.addEventListener("input", () => {
   clearTimeout(debounceTimer);
   const q = input.value.trim();
   if (q.length < 2) { ac.style.display = "none"; return; }
+  // Show spinner immediately while waiting for the debounce + fetch
+  ac.innerHTML = `<div class="ac-loading"><span class="ac-spinner"></span></div>`;
+  ac.style.display = "block";
   debounceTimer = setTimeout(() => fetchSuggestions(q), 250);
 });
 input.addEventListener("blur",  () => setTimeout(() => { ac.style.display = "none"; }, 150));
@@ -210,12 +213,21 @@ async function fetchSuggestions(q) {
   } catch (e) { showStatus("Network error", "error"); }
 }
 
+function cleanStationName(name) {
+  // SNCF API sometimes returns "Foo (Foo)" — strip the redundant qualifier
+  return name.replace(/\s*\(([^)]+)\)$/, (_, qualifier) =>
+    qualifier.trim().toLowerCase() === name.replace(/\s*\([^)]+\)$/, "").trim().toLowerCase()
+      ? "" : ` (${qualifier})`
+  ).trim();
+}
+
 function renderSuggestions(stations) {
   if (!stations.length) { ac.style.display = "none"; return; }
-  ac.innerHTML = stations.map(s =>
-    `<div class="ac-item" data-id="${s.id}" data-name="${s.name}"
-          data-lat="${s.lat}" data-lon="${s.lon}">${s.name}</div>`
-  ).join("");
+  ac.innerHTML = stations.map(s => {
+    const display = cleanStationName(s.name);
+    return `<div class="ac-item" data-id="${s.id}" data-name="${display}"
+          data-lat="${s.lat}" data-lon="${s.lon}">${display}</div>`;
+  }).join("");
   ac.style.display = "block";
   ac.querySelectorAll(".ac-item").forEach(el => {
     el.addEventListener("mousedown", () => {
@@ -280,6 +292,43 @@ async function selectStation(station) {
   });
 }
 
+// ── Station popup ─────────────────────────────────────────────────────────────
+const EXPLORE_ICON = `<svg class="explore-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="11" cy="11" r="7"/>
+  <line x1="16.5" y1="16.5" x2="22" y2="22"/>
+</svg>`;
+
+function stationPopupHtml(s) {
+  return `<div class="popup-station">
+    <strong>${s.name}</strong>
+    <button class="popup-btn-explore" title="${t("exploreFrom")}"
+            data-id="${s.id}" data-name="${s.name}"
+            data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>
+  </div>`;
+}
+
+// Delegated listener: catches clicks on popup buttons anywhere on the map
+document.getElementById("map").addEventListener("click", (e) => {
+  const btn = e.target.closest(".popup-btn-explore");
+  if (!btn) return;
+  const station = { id: btn.dataset.id, name: btn.dataset.name,
+                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
+  input.value = station.name;
+  map.closePopup();
+  selectStation(station);
+});
+
+// Delegated listener: catches clicks on explore buttons in the sidebar stop list
+connList.addEventListener("click", (e) => {
+  const btn = e.target.closest(".stop-btn-explore");
+  if (!btn) return;
+  e.stopPropagation(); // don't also trigger the stop-row onclick
+  const station = { id: btn.dataset.id, name: btn.dataset.name,
+                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
+  input.value = station.name;
+  selectStation(station);
+});
+
 // ── Render routes ─────────────────────────────────────────────────────────────
 function renderConnections(origin, paths) {
   if (!paths.length) {
@@ -291,18 +340,22 @@ function renderConnections(origin, paths) {
     const color   = routeColor(idx);
     const latlngs = path.stops.map(s => [s.lat, s.lon]);
 
-    // Polyline — clicking selects the route
+    // Polyline — visual only
     const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
-    poly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
-    poly.on("click", () => selectRoute(idx));
+
+    // Invisible fat polyline used purely as a tap/click target (~20px touch area)
+    const hitPoly = L.polyline(latlngs, { color, weight: 20, opacity: 0, interactive: true }).addTo(map);
+    hitPoly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
+    hitPoly.on("click", () => selectRoute(idx));
 
     // Markers — created but NOT added to map until the route is selected
     const markers = path.stops
       .filter(s => s.id !== origin.id)
       .map(s => {
         const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
-        m._stopId = s.id;
-        m.bindPopup(`<strong>${s.name}</strong>`);
+        m._stopId  = s.id;
+        m._station = s;
+        m.bindPopup(stationPopupHtml(s));
         m.on("click", () => {
           if (activeStopRow) activeStopRow.classList.remove("active");
           const row = connList.querySelector(
@@ -317,7 +370,7 @@ function renderConnections(origin, paths) {
         return m;
       });
 
-    return { poly, markers, color, path };
+    return { poly, hitPoly, markers, color, path };
   });
 
   // ── Sidebar accordions ────────────────────────────────────────────────────
@@ -349,6 +402,9 @@ function renderConnections(origin, paths) {
             <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
           <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
+          ${isOrigin ? "" : `<button class="stop-btn-explore" title="${t("exploreFrom")}"
+              data-id="${s.id}" data-name="${s.name}"
+              data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>`}
         </div>`;
     }).join("");
 
@@ -464,9 +520,10 @@ function clearMap() {
   if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
   routes.forEach(r => {
     map.removeLayer(r.poly);
+    map.removeLayer(r.hitPoly);
     r.markers.forEach(m => map.removeLayer(m));
   });
-  routes        = [];
+  routes          = [];
   activeRouteIdx  = null;
   activeStopRow   = null;
   _changingRoute  = false;

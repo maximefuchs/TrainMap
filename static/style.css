@@ -93,6 +93,24 @@ header h1 span { color: #38bdf8; }
 .ac-item:hover { background: #0ea5e9; color: #fff; }
 .ac-item:last-child { border-bottom: none; }
 
+.ac-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px;
+}
+.ac-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #334155;
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 #status {
   font-size: 0.85rem;
   color: #94a3b8;
@@ -224,10 +242,14 @@ details[open] .route-chevron { transform: rotate(90deg); }
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 0 16px;
+  padding: 0 8px 0 16px;
   cursor: pointer;
   transition: background 0.12s;
 }
+
+/* Push the explore icon to the far right; hide it until row is hovered */
+.stop-btn-explore { margin-left: auto; opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s; }
+.stop-row:hover .stop-btn-explore { opacity: 1; }
 .stop-row:hover { background: #0f172a; }
 .stop-row.active { background: #0c4a6e; }
 
@@ -286,6 +308,36 @@ details[open] .route-chevron { transform: rotate(90deg); }
 .leaflet-popup-tip { background: #1e293b; }
 .leaflet-popup-content { margin: 10px 14px; font-size: 0.88rem; line-height: 1.6; }
 .leaflet-popup-content strong { color: #38bdf8; }
+
+/* Popup layout: name + icon side by side */
+.popup-station {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Shared explore icon button style (popup + sidebar) */
+.popup-btn-explore,
+.stop-btn-explore {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.popup-btn-explore:hover,
+.stop-btn-explore:hover  { color: #38bdf8; background: #0f172a55; }
+
+.explore-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
 .leaflet-popup-content a:hover { text-decoration: underline !important; }
 
 /* Remove the browser focus outline Leaflet shows on clicked SVG paths */
