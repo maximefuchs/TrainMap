@@ -213,12 +213,21 @@ async function fetchSuggestions(q) {
   } catch (e) { showStatus("Network error", "error"); }
 }
 
+function cleanStationName(name) {
+  // SNCF API sometimes returns "Foo (Foo)" — strip the redundant qualifier
+  return name.replace(/\s*\(([^)]+)\)$/, (_, qualifier) =>
+    qualifier.trim().toLowerCase() === name.replace(/\s*\([^)]+\)$/, "").trim().toLowerCase()
+      ? "" : ` (${qualifier})`
+  ).trim();
+}
+
 function renderSuggestions(stations) {
   if (!stations.length) { ac.style.display = "none"; return; }
-  ac.innerHTML = stations.map(s =>
-    `<div class="ac-item" data-id="${s.id}" data-name="${s.name}"
-          data-lat="${s.lat}" data-lon="${s.lon}">${s.name}</div>`
-  ).join("");
+  ac.innerHTML = stations.map(s => {
+    const display = cleanStationName(s.name);
+    return `<div class="ac-item" data-id="${s.id}" data-name="${display}"
+          data-lat="${s.lat}" data-lon="${s.lon}">${display}</div>`;
+  }).join("");
   ac.style.display = "block";
   ac.querySelectorAll(".ac-item").forEach(el => {
     el.addEventListener("mousedown", () => {
