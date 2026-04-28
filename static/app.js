@@ -284,9 +284,9 @@ async function selectStation(station) {
 }
 
 // ── Station popup ─────────────────────────────────────────────────────────────
-const EXPLORE_ICON = `<svg class="explore-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <circle cx="12" cy="12" r="3"/>
-  <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+const EXPLORE_ICON = `<svg class="explore-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="11" cy="11" r="7"/>
+  <line x1="16.5" y1="16.5" x2="22" y2="22"/>
 </svg>`;
 
 function stationPopupHtml(s) {
@@ -514,7 +514,7 @@ function clearMap() {
     map.removeLayer(r.hitPoly);
     r.markers.forEach(m => map.removeLayer(m));
   });
-  routes        = [];
+  routes          = [];
   activeRouteIdx  = null;
   activeStopRow   = null;
   _changingRoute  = false;

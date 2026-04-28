@@ -520,6 +520,4 @@ path.leaflet-interactive:focus { outline: none; }
     opacity: 1;
     pointer-events: auto;
   }
-  /* Always show the explore icon on touch screens (no hover state) */
-  .stop-btn-explore { opacity: 1; }
 }
