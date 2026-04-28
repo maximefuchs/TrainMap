@@ -291,10 +291,13 @@ function renderConnections(origin, paths) {
     const color   = routeColor(idx);
     const latlngs = path.stops.map(s => [s.lat, s.lon]);
 
-    // Polyline — clicking selects the route
+    // Polyline — visual only
     const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
-    poly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
-    poly.on("click", () => selectRoute(idx));
+
+    // Invisible fat polyline used purely as a tap/click target (~20px touch area)
+    const hitPoly = L.polyline(latlngs, { color, weight: 20, opacity: 0, interactive: true }).addTo(map);
+    hitPoly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
+    hitPoly.on("click", () => selectRoute(idx));
 
     // Markers — created but NOT added to map until the route is selected
     const markers = path.stops
@@ -317,7 +320,7 @@ function renderConnections(origin, paths) {
         return m;
       });
 
-    return { poly, markers, color, path };
+    return { poly, hitPoly, markers, color, path };
   });
 
   // ── Sidebar accordions ────────────────────────────────────────────────────
@@ -464,6 +467,7 @@ function clearMap() {
   if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
   routes.forEach(r => {
     map.removeLayer(r.poly);
+    map.removeLayer(r.hitPoly);
     r.markers.forEach(m => map.removeLayer(m));
   });
   routes        = [];
