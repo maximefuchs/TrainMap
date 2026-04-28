@@ -18,6 +18,7 @@ const TRANSLATIONS = {
     stopCount:          (n) => `${n} stop${n !== 1 ? "s" : ""}`,
     errorPrefix:        "Error",
     connectionError:    "Connection error",
+    exploreFrom:        "Explore from here",
   },
   fr: {
     pageTitle:          "Train Map — Connexions directes en France",
@@ -37,6 +38,7 @@ const TRANSLATIONS = {
     stopCount:          (n) => `${n} arrêt${n !== 1 ? "s" : ""}`,
     errorPrefix:        "Erreur",
     connectionError:    "Erreur de connexion",
+    exploreFrom:        "Explorer depuis ici",
   },
 };
 

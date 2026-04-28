@@ -283,6 +283,43 @@ async function selectStation(station) {
   });
 }
 
+// ── Station popup ─────────────────────────────────────────────────────────────
+const EXPLORE_ICON = `<svg class="explore-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="3"/>
+  <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+</svg>`;
+
+function stationPopupHtml(s) {
+  return `<div class="popup-station">
+    <strong>${s.name}</strong>
+    <button class="popup-btn-explore" title="${t("exploreFrom")}"
+            data-id="${s.id}" data-name="${s.name}"
+            data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>
+  </div>`;
+}
+
+// Delegated listener: catches clicks on popup buttons anywhere on the map
+document.getElementById("map").addEventListener("click", (e) => {
+  const btn = e.target.closest(".popup-btn-explore");
+  if (!btn) return;
+  const station = { id: btn.dataset.id, name: btn.dataset.name,
+                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
+  input.value = station.name;
+  map.closePopup();
+  selectStation(station);
+});
+
+// Delegated listener: catches clicks on explore buttons in the sidebar stop list
+connList.addEventListener("click", (e) => {
+  const btn = e.target.closest(".stop-btn-explore");
+  if (!btn) return;
+  e.stopPropagation(); // don't also trigger the stop-row onclick
+  const station = { id: btn.dataset.id, name: btn.dataset.name,
+                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
+  input.value = station.name;
+  selectStation(station);
+});
+
 // ── Render routes ─────────────────────────────────────────────────────────────
 function renderConnections(origin, paths) {
   if (!paths.length) {
@@ -307,8 +344,9 @@ function renderConnections(origin, paths) {
       .filter(s => s.id !== origin.id)
       .map(s => {
         const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
-        m._stopId = s.id;
-        m.bindPopup(`<strong>${s.name}</strong>`);
+        m._stopId  = s.id;
+        m._station = s;
+        m.bindPopup(stationPopupHtml(s));
         m.on("click", () => {
           if (activeStopRow) activeStopRow.classList.remove("active");
           const row = connList.querySelector(
@@ -355,6 +393,9 @@ function renderConnections(origin, paths) {
             <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
           <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
+          ${isOrigin ? "" : `<button class="stop-btn-explore" title="${t("exploreFrom")}"
+              data-id="${s.id}" data-name="${s.name}"
+              data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>`}
         </div>`;
     }).join("");
 
