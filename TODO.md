@@ -16,7 +16,7 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-- in search bar results, if value in () is the same as previous value, dont put the ()
+
 
 # Bugs
 
