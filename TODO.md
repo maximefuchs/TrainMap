@@ -16,5 +16,8 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-- when clicking on a station (either in navbar or on the map), put an option to lookup for this station
+- in search bar results, if value in () is the same as previous value, dont put the ()
 
+# Bugs
+
+- dont allow date picker before today
