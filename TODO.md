@@ -16,5 +16,6 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-
+- lines should be easier to click on
+- loader when looking for stations
 
