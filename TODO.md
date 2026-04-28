@@ -16,5 +16,5 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-- responsive
+
 
