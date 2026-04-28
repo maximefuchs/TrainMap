@@ -196,6 +196,9 @@ input.addEventListener("input", () => {
   clearTimeout(debounceTimer);
   const q = input.value.trim();
   if (q.length < 2) { ac.style.display = "none"; return; }
+  // Show spinner immediately while waiting for the debounce + fetch
+  ac.innerHTML = `<div class="ac-loading"><span class="ac-spinner"></span></div>`;
+  ac.style.display = "block";
   debounceTimer = setTimeout(() => fetchSuggestions(q), 250);
 });
 input.addEventListener("blur",  () => setTimeout(() => { ac.style.display = "none"; }, 150));

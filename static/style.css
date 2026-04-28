@@ -93,6 +93,24 @@ header h1 span { color: #38bdf8; }
 .ac-item:hover { background: #0ea5e9; color: #fff; }
 .ac-item:last-child { border-bottom: none; }
 
+.ac-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px;
+}
+.ac-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #334155;
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 #status {
   font-size: 0.85rem;
   color: #94a3b8;
