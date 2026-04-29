@@ -298,6 +298,19 @@ details[open] .route-chevron { transform: rotate(90deg); }
   z-index: 0;
 }
 
+/* Darken the tile layer to make route lines more visible */
+.leaflet-tile-pane {
+  filter: brightness(0.55);
+}
+
+#map-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 450;
+}
+
 /* Leaflet popup override */
 .leaflet-popup-content-wrapper {
   background: #1e293b;
