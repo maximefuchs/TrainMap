@@ -16,7 +16,7 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-- change the map language too when switching language
+- put city in the center of the map when clicking on it
 
 # Bugs
 
