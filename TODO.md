@@ -16,8 +16,14 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-
+- change the map language too when switching language
 
 # Bugs
 
 - dont allow date picker before today
+
+# Other
+
+- make better referencing
+- clean js file
+- update readme
