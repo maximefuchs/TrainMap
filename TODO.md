@@ -16,8 +16,14 @@ durations for stations that come before the origin in the route order.
 
 ## UI / UX
 
-
+- put city in the center of the map when clicking on it
 
 # Bugs
 
 - dont allow date picker before today
+
+# Other
+
+- make better referencing
+- clean js file
+- update readme
