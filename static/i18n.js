@@ -19,6 +19,7 @@ const TRANSLATIONS = {
     errorPrefix:        "Error",
     connectionError:    "Connection error",
     exploreFrom:        "Explore from here",
+    metaDescription:    "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
   },
   fr: {
     pageTitle:          "Train Map — Connexions directes en France",
@@ -39,6 +40,7 @@ const TRANSLATIONS = {
     errorPrefix:        "Erreur",
     connectionError:    "Erreur de connexion",
     exploreFrom:        "Explorer depuis ici",
+    metaDescription:    "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
   },
 };
 

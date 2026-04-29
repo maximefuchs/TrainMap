@@ -25,5 +25,17 @@ durations for stations that come before the origin in the route order.
 # Other
 
 - make better referencing
-- clean js file
-- update readme
+    Output from Opencode:
+    These matter more than any HTML change, but require action outside the codebase:
+    - Submit to Google Search Console — go to search.google.com/search-console (https://search.google.com/search-console), add your Render URL as a property, and request indexing. Without this, Google may not crawl the site for weeks.
+    - Submit a sitemap — for a single-page app a sitemap is just one line. Add this to main.py:
+        @app.get("/sitemap.xml")
+      def sitemap():
+          return Response(
+              '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+              '<url><loc>https://your-app.onrender.com/</loc></url></urlset>',
+              media_type="application/xml"
+          )
+        Then submit the URL in Search Console.
+    - Get inbound links — SEO ranking is mostly about other sites linking to you. Post it on Reddit (r/france, r/train, r/webdev), Hacker News "Show HN", or relevant French communities. A single link from a well-trafficked page beats any amount of meta-tag tuning.
+    - Render cold starts — Render's free tier spins down after inactivity, which causes a ~30 s delay on the first visit. Google's crawler may time out and penalise the page. Consider upgrading to a paid tier or using a cron job to ping the site every 10 minutes to keep it warm.

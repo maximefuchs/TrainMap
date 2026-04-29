@@ -22,15 +22,24 @@ const emptyText    = document.getElementById("empty-state-text");
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
 
-// Pushes the current language's strings into every translatable DOM node.
+// Pushes the current language's strings into every translatable DOM node,
+// including <meta> tags used by search engines and social media previews.
 // Called on page load and whenever the user switches language.
 function applyLang() {
+  const description = t("metaDescription");
+
   document.documentElement.lang = currentLang;
   document.title                = t("pageTitle");
   input.placeholder             = t("searchPlaceholder");
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
   emptyText.textContent         = t("emptyStateText");
+
+  // Update <meta name="description"> and Open Graph tags so that search
+  // engines and social-media link previews reflect the active language.
+  document.querySelector('meta[name="description"]').setAttribute("content", description);
+  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle"));
+  document.querySelector('meta[property="og:description"]').setAttribute("content", description);
 
   // Only overwrite the status bar when it is in the idle (no class) state;
   // leave active loading / error messages untouched.
