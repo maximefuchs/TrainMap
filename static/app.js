@@ -1,125 +1,29 @@
-// ── Map setup ────────────────────────────────────────────────────────────────
-const map = L.map("map", { center: [46.8, 2.3], zoom: 6 });
+// ── app.js ────────────────────────────────────────────────────────────────────
+// Entry point — wires together all modules and owns the features that don't
+// belong cleanly to a single sub-module:
+//   • i18n: applying translations to the DOM
+//   • Date picker: default value + triggering a re-fetch on change
+//   • Progress bar: show/hide/update during SSE streaming
+//   • Status bar: display info / loading / error messages
+//   • selectStation(): the main search flow (clears map, opens SSE stream,
+//     delegates rendering to routes.js)
+//
+// Load order in index.html must be:
+//   i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
+// ─────────────────────────────────────────────────────────────────────────────
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  maxZoom: 19,
-  subdomains: ["a", "b", "c"],
-}).addTo(map);
-
-// ── State ────────────────────────────────────────────────────────────────────
-let originMarker  = null;
-let selectedStation = null;
-let activeStopRow   = null;
-let debounceTimer   = null;
-
-// Built once per search result; one entry per route path.
-// { poly: L.Polyline, markers: L.Marker[], color: string }
-let routes = [];
-
-// Index of the currently highlighted route, or null.
-let activeRouteIdx = null;
-
-// Re-entrancy guard: prevents toggle listeners from calling selectRoute/
-// deselectRoute while we are already in the middle of one.
-let _changingRoute = false;
-
-// ── DOM refs ─────────────────────────────────────────────────────────────────
-const input        = document.getElementById("station-input");
-const ac           = document.getElementById("autocomplete");
+// DOM refs shared across several modules
 const status       = document.getElementById("status");
-const connList     = document.getElementById("connections-list");
-const connCount    = document.getElementById("conn-count");
-const sidebarLabel = document.getElementById("sidebar-label");
-const emptyText    = document.getElementById("empty-state-text");
 const dateInput    = document.getElementById("date-input");
 const progressWrap = document.getElementById("progress-bar-wrap");
 const progressBar  = document.getElementById("progress-bar");
 const langSelect   = document.getElementById("lang-select");
-const sidebar      = document.getElementById("sidebar");
-const sidebarFab   = document.getElementById("sidebar-fab");
-const fabCount     = document.getElementById("fab-count");
-const sidebarClose = document.getElementById("sidebar-close");
-const backdrop     = document.getElementById("sidebar-backdrop");
+const emptyText    = document.getElementById("empty-state-text");
 
-const sidebarHandle = document.getElementById("sidebar-handle");
+// ── i18n ──────────────────────────────────────────────────────────────────────
 
-// ── Mobile sidebar sheet (closed → peek → open) ───────────────────────────────
-function isMobile() { return window.matchMedia("(max-width: 600px)").matches; }
-
-function sidebarState() {
-  if (sidebar.classList.contains("open"))  return "open";
-  if (sidebar.classList.contains("peek"))  return "peek";
-  return "closed";
-}
-
-function setSidebar(state) {
-  sidebar.classList.remove("open", "peek");
-  backdrop.classList.remove("visible");
-  sidebarFab.classList.remove("hidden");
-  if (state === "open") {
-    sidebar.classList.add("open");
-    backdrop.classList.add("visible");
-    sidebarFab.classList.add("hidden");
-  } else if (state === "peek") {
-    sidebar.classList.add("peek");
-    sidebarFab.classList.add("hidden");
-  }
-}
-
-function openSidebar()  { setSidebar("open"); }
-function peekSidebar()  { setSidebar("peek"); }
-function closeSidebar() { setSidebar("closed"); }
-
-// Handle tap: peek → open, open → closed
-sidebarHandle.addEventListener("click", () => {
-  if (sidebarState() === "peek") openSidebar();
-  else closeSidebar();
-});
-
-sidebarFab.addEventListener("click", openSidebar);
-sidebarClose.addEventListener("click", closeSidebar);
-backdrop.addEventListener("click", closeSidebar);
-
-// Touch-drag on handle to resize / close
-(function () {
-  let startY = 0, startedAt = "";
-  const PEEK_OFFSET = 72; // must match CSS calc(100% - 72px)
-
-  sidebarHandle.addEventListener("touchstart", (e) => {
-    startY    = e.touches[0].clientY;
-    startedAt = sidebarState();
-    sidebar.style.transition = "none";
-  }, { passive: true });
-
-  sidebarHandle.addEventListener("touchmove", (e) => {
-    const dy       = e.touches[0].clientY - startY;
-    const sheetH   = sidebar.offsetHeight;
-    // base offset in px from bottom
-    const baseOffset = startedAt === "open" ? 0 : sheetH - PEEK_OFFSET;
-    const raw = Math.max(0, Math.min(sheetH, baseOffset + dy));
-    sidebar.style.transform = `translateY(${raw}px)`;
-  }, { passive: true });
-
-  sidebarHandle.addEventListener("touchend", (e) => {
-    sidebar.style.transition = "";
-    sidebar.style.transform  = "";
-    const dy     = e.changedTouches[0].clientY - startY;
-    const sheetH = sidebar.offsetHeight;
-    const SNAP   = sheetH * 0.25;  // 25% of sheet height to snap
-
-    if (startedAt === "open") {
-      setSidebar(dy > SNAP ? "closed" : "open");
-    } else {
-      // was peek
-      if (dy < -SNAP)      setSidebar("open");
-      else if (dy > SNAP)  setSidebar("closed");
-      else                 setSidebar("peek");
-    }
-  });
-})();
-
-// ── i18n application ──────────────────────────────────────────────────────────
+// Pushes the current language's strings into every translatable DOM node.
+// Called on page load and whenever the user switches language.
 function applyLang() {
   document.documentElement.lang = currentLang;
   document.title                = t("pageTitle");
@@ -128,159 +32,131 @@ function applyLang() {
   sidebarLabel.textContent      = t("sidebarHeader");
   emptyText.textContent         = t("emptyStateText");
 
-  // Status: only update the default message, not an active loading/error state
-  if (!status.className || status.className === "") {
+  // Only overwrite the status bar when it is in the idle (no class) state;
+  // leave active loading / error messages untouched.
+  if (!status.className) {
     status.textContent = t("statusDefault");
   }
 
   langSelect.value = currentLang;
 }
 
-langSelect.addEventListener("change", () => { setLang(langSelect.value); applyLang(); });
+langSelect.addEventListener("change", () => {
+  setLang(langSelect.value);
+  applyLang();
+});
 
-// Apply on load
-applyLang();
+applyLang();   // apply on first load
 
-function setProgress(current, total) {
-  if (total === 0) return;
-  const pct = Math.round((current / total) * 100);
-  progressWrap.hidden = false;
-  progressBar.style.width = pct + "%";
-}
+// ── Date picker ───────────────────────────────────────────────────────────────
 
-function hideProgress() {
-  progressBar.style.width = "100%";
-  setTimeout(() => {
-    progressWrap.hidden = true;
-    progressBar.style.width = "0%";
-  }, 400);
-}
-
+// Default to today so the user gets live schedules without touching the picker.
 dateInput.value = new Date().toISOString().slice(0, 10);
+
+// Re-run the search whenever the date changes (if a station is already selected).
 dateInput.addEventListener("change", () => {
   if (selectedStation) selectStation(selectedStation);
 });
 
-// ── Route color palette ───────────────────────────────────────────────────────
-const ROUTE_PALETTE = [
-  "#38bdf8", "#f472b6", "#a78bfa", "#34d399", "#fbbf24",
-  "#fb923c", "#e879f9", "#4ade80", "#f87171", "#60a5fa",
-];
-function routeColor(idx) { return ROUTE_PALETTE[idx % ROUTE_PALETTE.length]; }
+// ── Progress bar ──────────────────────────────────────────────────────────────
 
-function circleIcon(color) {
-  return L.divIcon({
-    className: "",
-    html: `<div style="
-      width:14px;height:14px;border-radius:50%;
-      background:${color};border:2px solid #fff;
-      box-shadow:0 0 6px ${color}88;
-    "></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
-  });
+// Updates the progress bar width during route streaming.
+// `current` and `total` are the route indices delivered by SSE "progress" events.
+function setProgress(current, total) {
+  if (total === 0) return;
+  const pct = Math.round((current / total) * 100);
+  progressWrap.hidden      = false;
+  progressBar.style.width  = pct + "%";
 }
 
-const originIcon = L.divIcon({
-  className: "",
-  html: `<div style="
-    width:18px;height:18px;border-radius:50%;
-    background:#38bdf8;border:3px solid #fff;
-    box-shadow:0 0 12px #38bdf888;
-  "></div>`,
-  iconSize: [18, 18],
-  iconAnchor: [9, 9],
-});
-
-// ── Autocomplete ─────────────────────────────────────────────────────────────
-input.addEventListener("input", () => {
-  clearTimeout(debounceTimer);
-  const q = input.value.trim();
-  if (q.length < 2) { ac.style.display = "none"; return; }
-  // Show spinner immediately while waiting for the debounce + fetch
-  ac.innerHTML = `<div class="ac-loading"><span class="ac-spinner"></span></div>`;
-  ac.style.display = "block";
-  debounceTimer = setTimeout(() => fetchSuggestions(q), 250);
-});
-input.addEventListener("blur",  () => setTimeout(() => { ac.style.display = "none"; }, 150));
-input.addEventListener("focus", () => { if (ac.innerHTML) ac.style.display = "block"; });
-
-async function fetchSuggestions(q) {
-  try {
-    const r    = await fetch(`/api/stations?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    if (!r.ok) { showStatus(data.detail || "API error", "error"); return; }
-    renderSuggestions(data.stations || []);
-  } catch (e) { showStatus("Network error", "error"); }
+// Animates the bar to 100 %, then hides it after a short delay so the user sees
+// a satisfying "done" flash rather than an abrupt disappearance.
+function hideProgress() {
+  progressBar.style.width = "100%";
+  setTimeout(() => {
+    progressWrap.hidden     = true;
+    progressBar.style.width = "0%";
+  }, 400);
 }
 
-function cleanStationName(name) {
-  // SNCF API sometimes returns "Foo (Foo)" — strip the redundant qualifier
-  return name.replace(/\s*\(([^)]+)\)$/, (_, qualifier) =>
-    qualifier.trim().toLowerCase() === name.replace(/\s*\([^)]+\)$/, "").trim().toLowerCase()
-      ? "" : ` (${qualifier})`
-  ).trim();
+// ── Status bar ────────────────────────────────────────────────────────────────
+
+// Displays a message in the top-bar status area.
+// `type` maps to a CSS class: "" (idle) | "loading" | "ok" | "error"
+function showStatus(msg, type = "") {
+  status.textContent = msg;
+  status.className   = type;
 }
 
-function renderSuggestions(stations) {
-  if (!stations.length) { ac.style.display = "none"; return; }
-  ac.innerHTML = stations.map(s => {
-    const display = cleanStationName(s.name);
-    return `<div class="ac-item" data-id="${s.id}" data-name="${display}"
-          data-lat="${s.lat}" data-lon="${s.lon}">${display}</div>`;
-  }).join("");
-  ac.style.display = "block";
-  ac.querySelectorAll(".ac-item").forEach(el => {
-    el.addEventListener("mousedown", () => {
-      selectStation({ id: el.dataset.id, name: el.dataset.name,
-                      lat: parseFloat(el.dataset.lat), lon: parseFloat(el.dataset.lon) });
-      input.value = el.dataset.name;
-      ac.style.display = "none";
-    });
-  });
-}
+// ── Station selection & SSE streaming ────────────────────────────────────────
 
-// ── Select station & load connections ────────────────────────────────────────
+// Holds the station object from the last successful autocomplete selection.
+// Used by the date-picker listener to re-run the search when the date changes.
+let selectedStation = null;
+
+// Main search flow: clears previous results, places the origin marker, then
+// opens a Server-Sent Events stream that progressively delivers route paths.
 async function selectStation(station) {
   selectedStation = station;
+
   clearMap();
 
-  originMarker = L.marker([station.lat, station.lon], { icon: originIcon, zIndexOffset: 1000 })
+  // Place the origin marker immediately so the user gets visual feedback while
+  // the routes are loading.
+  originMarker = L.marker([station.lat, station.lon], {
+    icon: originIcon,
+    zIndexOffset: 1000,   // always on top of stop markers
+  })
     .addTo(map)
     .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   map.setView([station.lat, station.lon], 7, { animate: true });
+
   showStatus(t("loadingConnections"), "loading");
   connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
   connCount.textContent = "0";
   fabCount.textContent  = "0";
 
-  const dateParam = dateInput.value ? "&date=" + dateInput.value.replace(/-/g, "") : "";
+  const dateParam = dateInput.value
+    ? "&date=" + dateInput.value.replace(/-/g, "")
+    : "";
   const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}${dateParam}`;
 
   const es = new EventSource(url);
 
+  // "progress" events arrive once per route as the backend finishes fetching it.
+  // We use them to drive the progress bar and keep the status text up to date.
   es.addEventListener("progress", (e) => {
-    const { current, total, message } = JSON.parse(e.data);
+    const { current, total } = JSON.parse(e.data);
     setProgress(current, total);
     showStatus(t("loadingProgress", current, total), "loading");
   });
 
+  // "done" is sent once, carrying the full result payload, after all routes have
+  // been processed. We close the stream and hand off to renderConnections().
   es.addEventListener("done", (e) => {
     es.close();
     hideProgress();
-    const data = JSON.parse(e.data);
-    const conns = data.connections || [];
-    const paths = data.route_paths || [];
+
+    const data  = JSON.parse(e.data);
+    const conns = data.connections  || [];
+    const paths = data.route_paths  || [];
+
     showStatus(t("connectionsFound", conns.length), "ok");
-    const routeLabel = t("routeCount", paths.length);
+
+    const routeLabel      = t("routeCount", paths.length);
     connCount.textContent = routeLabel;
     fabCount.textContent  = paths.length;
+
     renderConnections(station, paths);
-    // On mobile, peek the sidebar so the map stays mostly visible
+
+    // On mobile, peek the sidebar so the user knows results are available
+    // without the sheet blocking the whole map.
     if (isMobile()) peekSidebar();
   });
 
+  // "error" can be either a server-side error (e.data contains JSON) or a
+  // network failure (e.data is empty/null).
   es.addEventListener("error", (e) => {
     es.close();
     hideProgress();
@@ -291,246 +167,4 @@ async function selectStation(station) {
       showStatus(t("connectionError"), "error");
     }
   });
-}
-
-// ── Station popup ─────────────────────────────────────────────────────────────
-const EXPLORE_ICON = `<svg class="explore-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-  <circle cx="11" cy="11" r="7"/>
-  <line x1="16.5" y1="16.5" x2="22" y2="22"/>
-</svg>`;
-
-function stationPopupHtml(s) {
-  return `<div class="popup-station">
-    <strong>${s.name}</strong>
-    <button class="popup-btn-explore" title="${t("exploreFrom")}"
-            data-id="${s.id}" data-name="${s.name}"
-            data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>
-  </div>`;
-}
-
-// Delegated listener: catches clicks on popup buttons anywhere on the map
-document.getElementById("map").addEventListener("click", (e) => {
-  const btn = e.target.closest(".popup-btn-explore");
-  if (!btn) return;
-  const station = { id: btn.dataset.id, name: btn.dataset.name,
-                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
-  input.value = station.name;
-  map.closePopup();
-  selectStation(station);
-});
-
-// Delegated listener: catches clicks on explore buttons in the sidebar stop list
-connList.addEventListener("click", (e) => {
-  const btn = e.target.closest(".stop-btn-explore");
-  if (!btn) return;
-  e.stopPropagation(); // don't also trigger the stop-row onclick
-  const station = { id: btn.dataset.id, name: btn.dataset.name,
-                    lat: parseFloat(btn.dataset.lat), lon: parseFloat(btn.dataset.lon) };
-  input.value = station.name;
-  selectStation(station);
-});
-
-// ── Render routes ─────────────────────────────────────────────────────────────
-function renderConnections(origin, paths) {
-  if (!paths.length) {
-    connList.innerHTML = `<div id="empty-state"><p>${t("noConnections")}</p></div>`;
-    return;
-  }
-
-  routes = paths.map((path, idx) => {
-    const color   = routeColor(idx);
-    const latlngs = path.stops.map(s => [s.lat, s.lon]);
-
-    // Polyline — visual only
-    const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
-
-    // Invisible fat polyline used purely as a tap/click target (~20px touch area)
-    const hitPoly = L.polyline(latlngs, { color, weight: 20, opacity: 0, interactive: true }).addTo(map);
-    hitPoly.bindTooltip(path.line_code || t("trainFallback"), { sticky: true, className: "route-tooltip" });
-    hitPoly.on("click", () => selectRoute(idx));
-
-    // Markers — created but NOT added to map until the route is selected
-    const markers = path.stops
-      .filter(s => s.id !== origin.id)
-      .map(s => {
-        const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
-        m._stopId  = s.id;
-        m._station = s;
-        m.bindPopup(stationPopupHtml(s));
-        m.on("click", () => {
-          if (activeStopRow) activeStopRow.classList.remove("active");
-          const row = connList.querySelector(
-            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
-          );
-          if (row) {
-            row.classList.add("active");
-            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-            activeStopRow = row;
-          }
-        });
-        return m;
-      });
-
-    return { poly, hitPoly, markers, color, path };
-  });
-
-  // ── Sidebar accordions ────────────────────────────────────────────────────
-  connList.innerHTML = paths.map((path, idx) => {
-    const color     = routeColor(idx);
-    const stopCount = path.stops.length;
-    const firstName = path.stops[0]?.name || "";
-    const lastName  = path.stops[stopCount - 1]?.name || "";
-    const lineCode  = path.line_code || t("trainFallback");
-    const label = `${firstName} — ${lastName} <span style="opacity:.6;font-weight:400">(${lineCode})</span>`;
-
-    const stopsHtml = path.stops.map((s, si) => {
-      const isOrigin = s.id === origin.id;
-      const isFirst  = si === 0;
-      const isLast   = si === stopCount - 1;
-      const lineAbove = isFirst ? "transparent" : `${color}88`;
-      const lineBelow = isLast  ? "transparent" : `${color}88`;
-      const dotStyle  = isOrigin
-        ? `background:#fff;border-color:${color};`
-        : `background:${color};border-color:#fff;`;
-
-      return `
-        <div class="stop-row${isOrigin ? " active" : ""}"
-             data-stop-id="${s.id}" data-route-idx="${idx}"
-             onclick="activateStop('${s.id}', ${idx})">
-          <div class="stop-track">
-            <div class="stop-track-line" style="background:${lineAbove}"></div>
-            <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
-            <div class="stop-track-line" style="background:${lineBelow}"></div>
-          </div>
-          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
-          ${isOrigin ? "" : `<button class="stop-btn-explore" title="${t("exploreFrom")}"
-              data-id="${s.id}" data-name="${s.name}"
-              data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>`}
-        </div>`;
-    }).join("");
-
-    return `
-      <details class="route-section" id="route-${idx}">
-        <summary class="route-summary">
-          <div class="route-swatch" style="background:${color}"></div>
-          <span class="route-label">${label}</span>
-          <span class="route-count">${t("stopCount", stopCount)}</span>
-          <span class="route-chevron">▶</span>
-        </summary>
-        <div class="stop-list">${stopsHtml}</div>
-      </details>`;
-  }).join("");
-
-  // Accordion toggle → select / deselect route
-  connList.querySelectorAll("details.route-section").forEach((det, idx) => {
-    det.addEventListener("toggle", () => {
-      if (_changingRoute) return;
-      if (det.open) {
-        selectRoute(idx);
-      } else if (activeRouteIdx === idx) {
-        deselectRoute();
-      }
-    });
-  });
-}
-
-// ── Route selection ───────────────────────────────────────────────────────────
-function selectRoute(idx) {
-  if (_changingRoute || activeRouteIdx === idx) return;
-  _changingRoute = true;
-  activeRouteIdx = idx;
-
-  // On mobile, peek the sidebar so the user knows results are there
-  if (isMobile() && sidebarState() === "closed") peekSidebar();
-
-  // Highlight the active polyline, dim all others
-  routes.forEach((r, i) => {
-    r.poly.setStyle(i === idx
-      ? { weight: 4, opacity: 1 }
-      : { weight: 2, opacity: 0.2 }
-    );
-  });
-
-  // Swap markers: remove all, add this route's
-  routes.forEach(r => r.markers.forEach(m => map.removeLayer(m)));
-  routes[idx].markers.forEach(m => m.addTo(map));
-
-  // Fit the map to the route
-  map.fitBounds(routes[idx].poly.getBounds(), { padding: [60, 60] });
-
-  // Sync accordion: open this one, close siblings, scroll into view
-  const activeDet = document.getElementById(`route-${idx}`);
-  connList.querySelectorAll("details.route-section").forEach(det => {
-    det.open = (det === activeDet);
-  });
-  if (activeDet) activeDet.scrollIntoView({ block: "nearest", behavior: "smooth" });
-
-  _changingRoute = false;
-}
-
-function deselectRoute() {
-  if (_changingRoute) return;
-  _changingRoute = true;
-  activeRouteIdx = null;
-
-  // Restore all polylines
-  routes.forEach(r => r.poly.setStyle({ weight: 3, opacity: 0.75 }));
-
-  // Hide all markers
-  routes.forEach(r => r.markers.forEach(m => map.removeLayer(m)));
-
-  // Close all accordions
-  connList.querySelectorAll("details.route-section").forEach(d => { d.open = false; });
-
-  // Zoom out to fit all routes
-  if (routes.length) {
-    const allBounds = routes.map(r => r.poly.getBounds());
-    const combined  = allBounds.reduce((acc, b) => acc.extend(b));
-    map.fitBounds(combined, { padding: [60, 60] });
-  }
-
-  _changingRoute = false;
-}
-
-// ── Open a route accordion from a map popup link ──────────────────────────────
-function openRouteAccordion(idx) {
-  selectRoute(idx);
-}
-
-// ── Activate a stop row from sidebar click ────────────────────────────────────
-function activateStop(stopId, routeIdx) {
-  if (activeStopRow) activeStopRow.classList.remove("active");
-  const row = connList.querySelector(
-    `[data-stop-id="${CSS.escape(stopId)}"][data-route-idx="${routeIdx}"]`
-  );
-  if (row) {
-    row.classList.add("active");
-    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    activeStopRow = row;
-  }
-  // Pan map to the corresponding marker and open its popup
-  const m = routes[routeIdx]?.markers.find(mk => mk._stopId === stopId);
-  if (m) {
-    map.panTo(m.getLatLng(), { animate: true });
-    m.openPopup();
-  }
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function clearMap() {
-  if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
-  routes.forEach(r => {
-    map.removeLayer(r.poly);
-    map.removeLayer(r.hitPoly);
-    r.markers.forEach(m => map.removeLayer(m));
-  });
-  routes          = [];
-  activeRouteIdx  = null;
-  activeStopRow   = null;
-  _changingRoute  = false;
-}
-
-function showStatus(msg, type = "") {
-  status.textContent = msg;
-  status.className   = type;
 }
