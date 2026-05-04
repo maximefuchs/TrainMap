@@ -101,7 +101,7 @@ function renderSuggestions(stations) {
       };
       input.value      = station.name;
       ac.style.display = "none";
-      selectStation(station);
+      onStationSelected(station);
     });
   });
 }

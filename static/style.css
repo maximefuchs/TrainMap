@@ -121,12 +121,12 @@ header h1 span { color: #38bdf8; }
 #status.ok { color: #4ade80; }
 
 /* ── Country & Language dropdowns ───────────────────────── */
-#country-toggle {
+#country-toggle,
+#lang-toggle {
   flex-shrink: 0;
 }
 #lang-toggle {
   margin-left: auto;
-  flex-shrink: 0;
 }
 #country-select, #lang-select {
   padding: 5px 10px;

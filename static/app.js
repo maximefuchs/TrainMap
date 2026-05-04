@@ -53,6 +53,9 @@ countrySelect.addEventListener("change", () => {
 
   // Update all translatable strings (placeholders, title, meta…)
   applyLang();
+
+  // Step 1 done → move focus to the station search
+  input.focus();
 });
 
 // Set initial map view for the persisted country
@@ -102,10 +105,10 @@ applyLang();   // apply on first load
 
 // ── Date picker ───────────────────────────────────────────────────────────────
 
-// Default to today so the user gets today's schedule on first load.
+// Default to today's date.
 dateInput.value = new Date().toISOString().slice(0, 10);
 
-// Re-run the search whenever the date changes (if a station is already selected).
+// Step 3: date chosen → launch the search.
 dateInput.addEventListener("change", () => {
   if (selectedStation) selectStation(selectedStation);
 });
@@ -146,23 +149,33 @@ function showStatus(msg, type = "") {
 // Used by the date-picker listener to re-run the search when the date changes.
 let selectedStation = null;
 
-// Main search flow: clears previous results, places the origin marker, then
-// opens a Server-Sent Events stream that progressively delivers route paths.
-async function selectStation(station) {
+// Step 2: called by autocomplete when the user picks a station.
+// Places the origin marker and shifts focus to the date picker — does NOT
+// launch the search yet (that only happens when the date is confirmed).
+function onStationSelected(station) {
   selectedStation = station;
 
   clearMap();
 
-  // Place the origin marker immediately so the user gets visual feedback while
-  // the routes are loading.
+  // Place the origin marker so the user gets immediate visual feedback.
   originMarker = L.marker([station.lat, station.lon], {
     icon: originIcon,
-    zIndexOffset: 1000,   // always on top of stop markers
+    zIndexOffset: 1000,
   })
     .addTo(map)
     .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   map.setView([station.lat, station.lon], 7, { animate: true });
+  showStatus(t("statusPickDate"), "");
+
+  // Step 2 done → move focus to the date picker
+  dateInput.focus();
+}
+
+// Step 3 / main search flow: launches the SSE stream for the selected station
+// and date, progressively rendering routes as they arrive.
+async function selectStation(station) {
+  selectedStation = station;
 
   showStatus(t("loadingConnections"), "loading");
   connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
