@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import navitia_client
+import flixbus_client
 
 app = FastAPI(title="Train Map API")
 
@@ -28,11 +29,13 @@ async def index():
     return HTMLResponse(html_path.read_text())
 
 
-def _check_token(country: str) -> None:
+def _check_token(country: str, mode: str = "train") -> None:
     """
     Raise HTTPException 503 if a token is required but not configured.
-    Italy uses ViaggiaTreno (no token needed) so it always passes.
+    Italy (ViaggiaTreno) and bus mode (FlixBus) require no token.
     """
+    if mode == "bus":
+        return  # FlixBus requires no token
     if country == "it":
         return  # ViaggiaTreno requires no token
     token = navitia_client.get_token(country)
@@ -49,11 +52,15 @@ def _check_token(country: str) -> None:
 async def search_stations(
     q: str = Query(..., min_length=2, description="Search query"),
     country: str = Query("fr", description="Country code: 'fr' or 'it'"),
+    mode: str = Query("train", description="Transport mode: 'train' or 'bus'"),
 ):
     """Autocomplete station names. Returns list of {id, name, lat, lon}."""
-    _check_token(country)
+    _check_token(country, mode)
     try:
-        results = navitia_client.search_stations(q, count=10, country=country)
+        if mode == "bus":
+            results = flixbus_client.search_cities(q, country=country)
+        else:
+            results = navitia_client.search_stations(q, count=10, country=country)
         return {"stations": results}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -68,6 +75,7 @@ async def stream_connections(
     station_id: str = Query(..., description="stop_area id of the origin station"),
     date: str = Query(None, description="Date in YYYYMMDD format (default: today)"),
     country: str = Query("fr", description="Country code: 'fr' or 'it'"),
+    mode: str = Query("train", description="Transport mode: 'train' or 'bus'"),
 ):
     """
     SSE endpoint — streams progress events then a final 'done' event with the data.
@@ -78,7 +86,7 @@ async def stream_connections(
       error     {"detail": str}
     """
     try:
-        _check_token(country)
+        _check_token(country, mode)
     except HTTPException as e:
         async def _err():
             yield f"event: error\ndata: {json.dumps({'detail': e.detail})}\n\n"
@@ -97,12 +105,20 @@ async def stream_connections(
         import concurrent.futures
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
-        future = loop.run_in_executor(
-            executor,
-            lambda: navitia_client.get_direct_connections(
-                station_id, date=date, progress_callback=on_progress, country=country
-            ),
-        )
+        if mode == "bus":
+            future = loop.run_in_executor(
+                executor,
+                lambda: flixbus_client.get_direct_connections(
+                    station_id, date=date, country=country, progress_callback=on_progress
+                ),
+            )
+        else:
+            future = loop.run_in_executor(
+                executor,
+                lambda: navitia_client.get_direct_connections(
+                    station_id, date=date, progress_callback=on_progress, country=country
+                ),
+            )
 
         while not future.done():
             try:
@@ -137,11 +153,15 @@ async def get_connections(
     station_id: str = Query(..., description="stop_area id of the origin station"),
     date: str = Query(None, description="Date in YYYYMMDD format (default: today)"),
     country: str = Query("fr", description="Country code: 'fr' or 'it'"),
+    mode: str = Query("train", description="Transport mode: 'train' or 'bus'"),
 ):
     """Return all stations directly reachable from *station_id*."""
-    _check_token(country)
+    _check_token(country, mode)
     try:
-        result = navitia_client.get_direct_connections(station_id, date=date, country=country)
+        if mode == "bus":
+            result = flixbus_client.get_direct_connections(station_id, date=date, country=country)
+        else:
+            result = navitia_client.get_direct_connections(station_id, date=date, country=country)
         return {
             "connections": result["connections"],
             "route_paths": result["route_paths"],

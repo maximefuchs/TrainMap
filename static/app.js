@@ -3,6 +3,7 @@
 // belong cleanly to a single sub-module:
 //   • i18n: applying translations to the DOM
 //   • Country selector: switches data source between France and Italy
+//   • Mode toggle: switches between Train and Bus transport modes
 //   • Date picker: default value + triggering a re-fetch on change
 //   • Progress bar: show/hide/update during SSE streaming
 //   • Status bar: display info / loading / error messages
@@ -21,6 +22,8 @@ const progressBar   = document.getElementById("progress-bar");
 const langSelect    = document.getElementById("lang-select");
 const countrySelect = document.getElementById("country-select");
 const searchBtn     = document.getElementById("search-btn");
+const modeBtnTrain  = document.getElementById("mode-train");
+const modeBtnBus    = document.getElementById("mode-bus");
 
 // ── Country selection ─────────────────────────────────────────────────────────
 
@@ -81,31 +84,64 @@ countrySelect.addEventListener("change", () => {
   map.setView(view.center, view.zoom);
 })();
 
+// ── Mode toggle (Train / Bus) ─────────────────────────────────────────────────
+
+const _savedMode = localStorage.getItem("mode");
+let selectedMode = (_savedMode === "train" || _savedMode === "bus") ? _savedMode : "train";
+
+function _applyModeToggle() {
+  modeBtnTrain.classList.toggle("active", selectedMode === "train");
+  modeBtnBus.classList.toggle("active",   selectedMode === "bus");
+  modeBtnTrain.setAttribute("aria-pressed", selectedMode === "train");
+  modeBtnBus.setAttribute("aria-pressed",   selectedMode === "bus");
+}
+_applyModeToggle();
+
+function _onModeSwitch(newMode) {
+  if (selectedMode === newMode) return;
+  selectedMode = newMode;
+  localStorage.setItem("mode", selectedMode);
+  _applyModeToggle();
+
+  // Cancel in-flight stream and reset everything
+  cancelActiveStream();
+  _pickerOpenedForStation = false;
+  clearMap();
+  selectedStation = null;
+  input.value        = "";
+  ac.innerHTML       = "";
+  ac.style.display   = "none";
+  connCount.textContent = "0";
+  fabCount.textContent  = "0";
+  connList.innerHTML    = `<div id="empty-state"><p id="empty-state-text">${t("emptyStateText")}</p></div>`;
+  showStatus(t("statusDefault"), "");
+  updateSearchBtn();
+  applyLang();
+  input.focus();
+}
+
+modeBtnTrain.addEventListener("click", () => _onModeSwitch("train"));
+modeBtnBus.addEventListener("click",   () => _onModeSwitch("bus"));
+
 // ── i18n ──────────────────────────────────────────────────────────────────────
 
-// Pushes the current language's strings into every translatable DOM node,
-// including <meta> tags used by search engines and social media previews.
-// Called on page load, whenever the user switches language, and whenever the
-// user switches country.
 function applyLang() {
   const description = t("metaDescription", selectedCountry);
 
   document.documentElement.lang = currentLang;
   document.title                = t("pageTitle", selectedCountry);
-  input.placeholder             = t("searchPlaceholder", selectedCountry);
+  input.placeholder             = t("searchPlaceholder", selectedCountry, selectedMode);
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
+  modeBtnTrain.textContent      = t("modeTrain");
+  modeBtnBus.textContent        = t("modeBus");
   const currentEmptyText = document.getElementById("empty-state-text");
   if (currentEmptyText) currentEmptyText.textContent = t("emptyStateText");
 
-  // Update <meta name="description"> and Open Graph tags so that search
-  // engines and social-media link previews reflect the active language.
   document.querySelector('meta[name="description"]').setAttribute("content", description);
   document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle", selectedCountry));
   document.querySelector('meta[property="og:description"]').setAttribute("content", description);
 
-  // Only overwrite the status bar when it is in the idle (no class) state;
-  // leave active loading / error messages untouched.
   if (!status.className) {
     status.textContent = t("statusDefault");
   }
@@ -123,14 +159,12 @@ applyLang();   // apply on first load
 
 // ── Date picker ───────────────────────────────────────────────────────────────
 
-// Disallow past dates.
 const _today = new Date().toISOString().slice(0, 10);
 dateInput.min   = _today;
 dateInput.value = _today;
 
 let _pickerOpenedForStation = false;
 
-// When the date changes just close the picker — search is triggered by the button.
 dateInput.addEventListener("change", () => {
   _pickerOpenedForStation = false;
   dateInput.blur();
@@ -153,8 +187,6 @@ searchBtn.addEventListener("click", () => {
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
-// Updates the progress bar width during route streaming.
-// `current` and `total` are the route indices delivered by SSE "progress" events.
 function setProgress(current, total) {
   if (total === 0) return;
   const pct = Math.round((current / total) * 100);
@@ -162,8 +194,6 @@ function setProgress(current, total) {
   progressBar.style.width  = pct + "%";
 }
 
-// Animates the bar to 100 %, then hides it after a short delay so the user sees
-// a satisfying "done" flash rather than an abrupt disappearance.
 function hideProgress() {
   progressBar.style.width = "100%";
   setTimeout(() => {
@@ -174,8 +204,6 @@ function hideProgress() {
 
 // ── Status bar ────────────────────────────────────────────────────────────────
 
-// Displays a message in the top-bar status area.
-// `type` maps to a CSS class: "" (idle) | "loading" | "ok" | "error"
 function showStatus(msg, type = "") {
   status.textContent = msg;
   status.className   = type;
@@ -183,12 +211,7 @@ function showStatus(msg, type = "") {
 
 // ── Station selection & SSE streaming ────────────────────────────────────────
 
-// Holds the station object from the last successful autocomplete selection.
-// Used by the date-picker listener to re-run the search when the date changes.
 let selectedStation = null;
-
-// Active SSE stream — kept here so it can be aborted when the user switches
-// country or starts a new search before the previous one finishes.
 let activeStream = null;
 
 function cancelActiveStream() {
@@ -199,15 +222,11 @@ function cancelActiveStream() {
   hideProgress();
 }
 
-// Step 2: called by autocomplete when the user picks a station.
-// Places the origin marker and shifts focus to the date picker — does NOT
-// launch the search yet (that only happens when the date is confirmed).
 function onStationSelected(station) {
   selectedStation = station;
 
   clearMap();
 
-  // Place the origin marker so the user gets immediate visual feedback.
   originMarker = L.marker([station.lat, station.lon], {
     icon: originIcon,
     zIndexOffset: 1000,
@@ -219,28 +238,20 @@ function onStationSelected(station) {
   showStatus(t("statusPickDate"), "");
   updateSearchBtn();
 
-  // Step 2 done → open the date picker.
-  // showPicker() opens the native calendar; the flag lets the click handler
-  // know to fire the search if the user confirms the already-selected date.
   _pickerOpenedForStation = true;
   try {
     dateInput.showPicker();
   } catch {
-    // showPicker() may throw if not triggered by a direct user gesture in some
-    // browsers — fall back to plain focus so the picker is at least reachable.
     dateInput.focus();
   }
 }
 
-// Step 3 / main search flow: launches the SSE stream for the selected station
-// and date, progressively rendering routes as they arrive.
 async function selectStation(station) {
   selectedStation = station;
 
   cancelActiveStream();
   clearMap();
 
-  // Re-place the origin marker (clearMap removed it).
   originMarker = L.marker([station.lat, station.lon], {
     icon: originIcon,
     zIndexOffset: 1000,
@@ -256,23 +267,19 @@ async function selectStation(station) {
   const dateParam = dateInput.value
     ? "&date=" + dateInput.value.replace(/-/g, "")
     : "";
-  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}${dateParam}`;
+  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}&mode=${encodeURIComponent(selectedMode)}${dateParam}`;
 
   cancelActiveStream();
 
   const es = new EventSource(url);
   activeStream = es;
 
-  // "progress" events arrive once per route as the backend finishes fetching it.
-  // We use them to drive the progress bar and keep the status text up to date.
   es.addEventListener("progress", (e) => {
     const { current, total } = JSON.parse(e.data);
     setProgress(current, total);
     showStatus(t("loadingProgress", current, total), "loading");
   });
 
-  // "done" is sent once, carrying the full result payload, after all routes have
-  // been processed. We close the stream and hand off to renderConnections().
   es.addEventListener("done", (e) => {
     es.close();
     activeStream = null;
@@ -284,19 +291,17 @@ async function selectStation(station) {
 
     showStatus(t("connectionsFound", conns.length), "ok");
 
-    const routeLabel      = t("routeCount", paths.length);
+    // For bus mode, route_paths is empty; show connection count from conns
+    const displayCount = paths.length || conns.length;
+    const routeLabel      = t("routeCount", displayCount);
     connCount.textContent = routeLabel;
-    fabCount.textContent  = paths.length;
+    fabCount.textContent  = displayCount;
 
-    renderConnections(station, paths);
+    renderConnections(station, paths, conns, selectedMode);
 
-    // On mobile, peek the sidebar so the user knows results are available
-    // without the sheet blocking the whole map.
     if (isMobile()) peekSidebar();
   });
 
-  // "error" can be either a server-side error (e.data contains JSON) or a
-  // network failure (e.data is empty/null).
   es.addEventListener("error", (e) => {
     es.close();
     activeStream = null;
