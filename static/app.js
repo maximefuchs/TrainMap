@@ -2,6 +2,7 @@
 // Entry point — wires together all modules and owns the features that don't
 // belong cleanly to a single sub-module:
 //   • i18n: applying translations to the DOM
+//   • Country selector: switches data source between France and Italy
 //   • Date picker: default value + triggering a re-fetch on change
 //   • Progress bar: show/hide/update during SSE streaming
 //   • Status bar: display info / loading / error messages
@@ -13,32 +14,94 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // DOM refs shared across several modules
-const status       = document.getElementById("status");
-const dateInput    = document.getElementById("date-input");
-const progressWrap = document.getElementById("progress-bar-wrap");
-const progressBar  = document.getElementById("progress-bar");
-const langSelect   = document.getElementById("lang-select");
-const emptyText    = document.getElementById("empty-state-text");
+const status        = document.getElementById("status");
+const dateInput     = document.getElementById("date-input");
+const progressWrap  = document.getElementById("progress-bar-wrap");
+const progressBar   = document.getElementById("progress-bar");
+const langSelect    = document.getElementById("lang-select");
+const countrySelect = document.getElementById("country-select");
+const searchBtn     = document.getElementById("search-btn");
+
+// ── Country selection ─────────────────────────────────────────────────────────
+
+// Default map centres and zoom levels per country
+const COUNTRY_MAP_VIEW = {
+  fr: { center: [46.5, 2.5],  zoom: 6 },
+  it: { center: [42.5, 12.5], zoom: 6 },
+};
+
+// Persisted across sessions; defaults to France
+const _savedCountry = localStorage.getItem("country");
+let selectedCountry = (_savedCountry === "fr" || _savedCountry === "it")
+  ? _savedCountry
+  : "fr";
+
+countrySelect.value = selectedCountry;
+
+countrySelect.addEventListener("change", () => {
+  selectedCountry = countrySelect.value;
+  localStorage.setItem("country", selectedCountry);
+
+  // Cancel any in-flight search before clearing the map
+  cancelActiveStream();
+  _pickerOpenedForStation = false;
+
+  // Clear map layers, markers, and sidebar route list
+  clearMap();
+  selectedStation = null;
+
+  // Clear the station input and collapse the autocomplete dropdown
+  input.value        = "";
+  ac.innerHTML       = "";
+  ac.style.display   = "none";
+
+  // Reset sidebar counts and list to empty state
+  connCount.textContent = "0";
+  fabCount.textContent  = "0";
+  connList.innerHTML    = `<div id="empty-state"><p id="empty-state-text">${t("emptyStateText")}</p></div>`;
+
+  // Reset status bar to idle
+  showStatus(t("statusDefault"), "");
+  updateSearchBtn();
+
+  // Re-centre the map for the new country
+  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
+  map.setView(view.center, view.zoom, { animate: true });
+
+  // Update all translatable strings (placeholders, title, meta…)
+  applyLang();
+
+  // Step 1 done → move focus to the station search
+  input.focus();
+});
+
+// Set initial map view for the persisted country
+(function () {
+  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
+  map.setView(view.center, view.zoom);
+})();
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
 
 // Pushes the current language's strings into every translatable DOM node,
 // including <meta> tags used by search engines and social media previews.
-// Called on page load and whenever the user switches language.
+// Called on page load, whenever the user switches language, and whenever the
+// user switches country.
 function applyLang() {
-  const description = t("metaDescription");
+  const description = t("metaDescription", selectedCountry);
 
   document.documentElement.lang = currentLang;
-  document.title                = t("pageTitle");
-  input.placeholder             = t("searchPlaceholder");
+  document.title                = t("pageTitle", selectedCountry);
+  input.placeholder             = t("searchPlaceholder", selectedCountry);
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
-  emptyText.textContent         = t("emptyStateText");
+  const currentEmptyText = document.getElementById("empty-state-text");
+  if (currentEmptyText) currentEmptyText.textContent = t("emptyStateText");
 
   // Update <meta name="description"> and Open Graph tags so that search
   // engines and social-media link previews reflect the active language.
   document.querySelector('meta[name="description"]').setAttribute("content", description);
-  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle"));
+  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle", selectedCountry));
   document.querySelector('meta[property="og:description"]').setAttribute("content", description);
 
   // Only overwrite the status bar when it is in the idle (no class) state;
@@ -47,7 +110,8 @@ function applyLang() {
     status.textContent = t("statusDefault");
   }
 
-  langSelect.value = currentLang;
+  langSelect.value    = currentLang;
+  countrySelect.value = selectedCountry;
 }
 
 langSelect.addEventListener("change", () => {
@@ -59,12 +123,32 @@ applyLang();   // apply on first load
 
 // ── Date picker ───────────────────────────────────────────────────────────────
 
-// Default to today so the user gets live schedules without touching the picker.
-dateInput.value = new Date().toISOString().slice(0, 10);
+// Disallow past dates.
+const _today = new Date().toISOString().slice(0, 10);
+dateInput.min   = _today;
+dateInput.value = _today;
 
-// Re-run the search whenever the date changes (if a station is already selected).
+let _pickerOpenedForStation = false;
+
+// When the date changes just close the picker — search is triggered by the button.
 dateInput.addEventListener("change", () => {
-  if (selectedStation) selectStation(selectedStation);
+  _pickerOpenedForStation = false;
+  dateInput.blur();
+  updateSearchBtn();
+});
+
+dateInput.addEventListener("focusout", () => {
+  _pickerOpenedForStation = false;
+});
+
+// ── Search button ─────────────────────────────────────────────────────────────
+
+function updateSearchBtn() {
+  searchBtn.disabled = !(selectedStation && dateInput.value);
+}
+
+searchBtn.addEventListener("click", () => {
+  if (selectedStation && dateInput.value) selectStation(selectedStation);
 });
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -103,23 +187,66 @@ function showStatus(msg, type = "") {
 // Used by the date-picker listener to re-run the search when the date changes.
 let selectedStation = null;
 
-// Main search flow: clears previous results, places the origin marker, then
-// opens a Server-Sent Events stream that progressively delivers route paths.
-async function selectStation(station) {
+// Active SSE stream — kept here so it can be aborted when the user switches
+// country or starts a new search before the previous one finishes.
+let activeStream = null;
+
+function cancelActiveStream() {
+  if (activeStream) {
+    activeStream.close();
+    activeStream = null;
+  }
+  hideProgress();
+}
+
+// Step 2: called by autocomplete when the user picks a station.
+// Places the origin marker and shifts focus to the date picker — does NOT
+// launch the search yet (that only happens when the date is confirmed).
+function onStationSelected(station) {
   selectedStation = station;
 
   clearMap();
 
-  // Place the origin marker immediately so the user gets visual feedback while
-  // the routes are loading.
+  // Place the origin marker so the user gets immediate visual feedback.
   originMarker = L.marker([station.lat, station.lon], {
     icon: originIcon,
-    zIndexOffset: 1000,   // always on top of stop markers
+    zIndexOffset: 1000,
   })
     .addTo(map)
     .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   map.setView([station.lat, station.lon], 7, { animate: true });
+  showStatus(t("statusPickDate"), "");
+  updateSearchBtn();
+
+  // Step 2 done → open the date picker.
+  // showPicker() opens the native calendar; the flag lets the click handler
+  // know to fire the search if the user confirms the already-selected date.
+  _pickerOpenedForStation = true;
+  try {
+    dateInput.showPicker();
+  } catch {
+    // showPicker() may throw if not triggered by a direct user gesture in some
+    // browsers — fall back to plain focus so the picker is at least reachable.
+    dateInput.focus();
+  }
+}
+
+// Step 3 / main search flow: launches the SSE stream for the selected station
+// and date, progressively rendering routes as they arrive.
+async function selectStation(station) {
+  selectedStation = station;
+
+  cancelActiveStream();
+  clearMap();
+
+  // Re-place the origin marker (clearMap removed it).
+  originMarker = L.marker([station.lat, station.lon], {
+    icon: originIcon,
+    zIndexOffset: 1000,
+  })
+    .addTo(map)
+    .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   showStatus(t("loadingConnections"), "loading");
   connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
@@ -129,9 +256,12 @@ async function selectStation(station) {
   const dateParam = dateInput.value
     ? "&date=" + dateInput.value.replace(/-/g, "")
     : "";
-  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}${dateParam}`;
+  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}${dateParam}`;
+
+  cancelActiveStream();
 
   const es = new EventSource(url);
+  activeStream = es;
 
   // "progress" events arrive once per route as the backend finishes fetching it.
   // We use them to drive the progress bar and keep the status text up to date.
@@ -145,6 +275,7 @@ async function selectStation(station) {
   // been processed. We close the stream and hand off to renderConnections().
   es.addEventListener("done", (e) => {
     es.close();
+    activeStream = null;
     hideProgress();
 
     const data  = JSON.parse(e.data);
@@ -168,6 +299,7 @@ async function selectStation(station) {
   // network failure (e.data is empty/null).
   es.addEventListener("error", (e) => {
     es.close();
+    activeStream = null;
     hideProgress();
     if (e.data) {
       const { detail } = JSON.parse(e.data);

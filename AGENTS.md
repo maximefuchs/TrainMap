@@ -1,14 +1,17 @@
 # Agent context — Train Map
 
 ## What the app does
-Interactive map of direct train connections in France. The user types a station
-name, selects it from an autocomplete dropdown, and the app draws every city
-reachable by a single direct train as colour-coded polylines on a Leaflet map.
-A sidebar lists the routes as accordions with a stop-by-stop timeline.
+Interactive map of direct train connections in France and Italy. The user picks
+a country, types a station name, selects it from an autocomplete dropdown, and
+the app draws every city reachable by a single direct train as colour-coded
+polylines on a Leaflet map. A sidebar lists the routes as accordions with a
+stop-by-stop timeline.
 
 ## Tech stack
 - **Backend:** Python / FastAPI, served by uvicorn. Managed with `uv`.
-- **Data source:** SNCF / Navitia REST API (token in `.env` as `SNCF_API_TOKEN`).
+- **Data sources:**
+  - France: Navitia REST API at `api.sncf.com/v1/coverage/sncf` (token `SNCF_API_TOKEN`)
+  - Italy: ViaggiaTreno API at `viaggiatreno.it/infomobilita/resteasy/viaggiatreno` (**no token required**)
 - **Streaming:** results are pushed to the browser via Server-Sent Events (SSE)
   so the map updates progressively as each route is fetched.
 - **Frontend:** plain HTML + CSS + vanilla JavaScript. No framework, no bundler,
@@ -18,7 +21,30 @@ A sidebar lists the routes as accordions with a stop-by-stop timeline.
   **do not attempt a div/pane overlay**, it cannot be positioned correctly due
   to Leaflet's `transform` on `.leaflet-map-pane` creating a stacking context.
 - **i18n:** custom lightweight system in `i18n.js`. Two locales: `en` and `fr`.
-  Language is persisted in `localStorage`. `t(key)` is a global helper.
+  Language is persisted in `localStorage`. `t(key, ...args)` is a global helper.
+  Some keys (`pageTitle`, `searchPlaceholder`, `metaDescription`) take `country`
+  as their first argument to produce country-specific strings.
+
+## Multi-country architecture
+- `navitia_client.py` is the dispatcher. It handles France (Navitia) directly
+  and delegates Italy calls to `trenitalia_client.py`.
+- `trenitalia_client.py` wraps the ViaggiaTreno unofficial API. No token needed.
+  Station coordinates come from the bundled `trenitalia_stations.csv` (2963 entries);
+  stations missing from the CSV are fetched live from the `regione` + `dettaglioStazione`
+  endpoints and cached in memory.
+- All API endpoints accept `?country=fr` (default) or `?country=it`.
+- Frontend persists `selectedCountry` in `localStorage`; switching country
+  clears the map and re-centres it (`fr` → `[46.5, 2.5]` z6, `it` → `[42.5, 12.5]` z6).
+
+## Italy / ViaggiaTreno specifics
+- Base URL: `http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/`
+- Station search: `cercaStazione/<QUERY>` → JSON list with `id`, `nomeLungo`, `nomeBreve`
+- Departures: `partenze/<STATION_ID>/<DATE_STR>` where DATE_STR is
+  `"Mon May 04 2026 10:00:00 GMT+0100"` (URL-encoded). Returns trains for the next ~3h window.
+- Train stops: `andamentoTreno/<ORIGIN_ID>/<TRAIN_NUM>/<TIMESTAMP_MS>` → `fermate[]`
+  — stops have **no lat/lon** in this response; coords come from the CSV.
+- Station coords fallback: `regione/<STATION_ID>` → int → `dettaglioStazione/<ID>/<INT>` → lat/lon
+- Train categories included: `FR, FA, FB, IC, ICN, EC, EN, REG, RV`
 
 ## Frontend file responsibilities
 
@@ -29,7 +55,7 @@ A sidebar lists the routes as accordions with a stop-by-stop timeline.
 | `sidebar.js` | Mobile sheet states (closed/peek/open), drag gesture, `isMobile()`, `setSidebar/open/peek/closeSidebar()`, `sidebarState()` |
 | `autocomplete.js` | Station search input (`input`), debounce, suggestion dropdown, `cleanStationName()` |
 | `routes.js` | `renderConnections()`, `selectRoute()`, `deselectRoute()`, `activateStop()`, `clearMap()`, `originMarker`, `originIcon`, `connList`, `connCount` |
-| `app.js` | Entry point — `selectStation()`, `showStatus()`, `setProgress()`, `hideProgress()`, `applyLang()`, `selectedStation`, `dateInput`, `status` |
+| `app.js` | Entry point — `selectStation()`, `showStatus()`, `setProgress()`, `hideProgress()`, `applyLang()`, `selectedStation`, `selectedCountry`, `dateInput`, `status` |
 
 ## Critical: script load order in index.html
 The files communicate through shared globals and **must** be loaded in this
@@ -43,7 +69,7 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
   This keeps the setup zero-config (no bundler, no `type="module"` CORS issues
   with the FastAPI static file server).
 - **SSE streaming:** the `/api/connections/stream` endpoint emits `progress`
-  events (one per route) and a final `done` event with the full payload.
+  events (one per route/train) and a final `done` event with the full payload.
   The frontend never polls; it just listens.
 - **Hit polylines:** each route has two overlapping polylines — a thin visible
   one (weight 3) and a transparent fat one (weight 20) used purely as a
@@ -57,26 +83,32 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
 ## API endpoints
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/stations?q=<query>` | Autocomplete station names |
-| `GET` | `/api/connections/stream?station_id=<id>&date=<YYYYMMDD>` | SSE stream of direct connections |
-| `GET` | `/api/connections?station_id=<id>&date=<YYYYMMDD>` | Non-streaming equivalent (same payload) |
+| `GET` | `/api/stations?q=<query>&country=fr` | Autocomplete station names |
+| `GET` | `/api/connections/stream?station_id=<id>&country=fr&date=<YYYYMMDD>` | SSE stream of direct connections |
+| `GET` | `/api/connections?station_id=<id>&country=fr&date=<YYYYMMDD>` | Non-streaming equivalent (same payload) |
 
-- `date` is optional in both connection endpoints. When omitted the backend
-  queries from the current moment (not midnight), so results reflect trains
-  still running today.
+- `country` defaults to `"fr"` on all endpoints; pass `"it"` for Italy.
+- `date` is optional. When omitted the backend queries from the current moment
+  (not midnight), so results reflect trains still running today.
 
 ## Environment
-- Requires `.env` with `SNCF_API_TOKEN=<uuid>`. Copy from `.env.example`.
+- Requires `.env` with `SNCF_API_TOKEN=<uuid>` for France. Copy from `.env.example`.
+- Italy requires **no token** — uses ViaggiaTreno.
 - Run locally: `uv run uvicorn main:app --reload`
 - Install dev deps: `uv sync --extra dev` (adds `pytest-asyncio`)
-- Run tests (no token needed, fully mocked): `uv run pytest test_sncf_client.py -v`
+- Run tests (no token needed, fully mocked): `uv run pytest test_navitia_client.py -v`
 - Deployed on Render (free tier — cold starts after inactivity).
 
 ## Known constraints / gotchas
-- The SNCF API token is required for any backend functionality. Tests mock it.
-- `sncf_client` wraps `httpx.Client` in a `_LoggingClient`. Tests must mock
-  `sncf_client.httpx.Client` (not `httpx.Client` directly) — see existing
-  test fixtures for the correct patch target.
+- `navitia_client` wraps `httpx.Client` in a `_LoggingClient`. Tests must mock
+  `navitia_client.httpx.Client` (not `httpx.Client` directly).
+- `trenitalia_client` uses `httpx.get()` directly (not a context-manager client).
+  Mock `trenitalia_client.httpx.get` in tests, or mock at the `navitia_client.trenitalia_client` level.
+- The ViaggiaTreno API is unofficial and undocumented by Trenitalia; it could
+  change without notice. The date format for `partenze` must be the JS-style
+  `"Mon May 04 2026 10:00:00 GMT+0100"` string, URL-encoded.
+- `trenitalia_stations.csv` is from a 2015 dump; newer stations (e.g. Napoli Afragola)
+  are missing and fetched live. Stations with `N/A` coordinates are skipped.
 - Render free tier spins down after inactivity (~30 s cold start).
 - OSM tile servers have a usage policy — do not change `maxZoom` above 19 or
   remove the attribution.

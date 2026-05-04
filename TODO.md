@@ -17,10 +17,12 @@ durations for stations that come before the origin in the route order.
 ## UI / UX
 
 - put city in the center of the map when clicking on it
+- open date picker after selection of city
 
 # Bugs
 
 - dont allow date picker before today
+- no trains found for date next month
 
 # Other
 

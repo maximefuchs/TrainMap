@@ -1,12 +1,17 @@
 // ── Translations ──────────────────────────────────────────────────────────────
 const TRANSLATIONS = {
   en: {
-    pageTitle:          "Train Map — Direct Connections in France",
-    searchPlaceholder:  "Search a French city or station…",
+    pageTitle:          (country) => country === "it"
+                          ? "Train Map — Direct Connections in Italy"
+                          : "Train Map — Direct Connections in France",
+    searchPlaceholder:  (country) => country === "it"
+                          ? "Search an Italian city or station…"
+                          : "Search a French city or station…",
     dateTitle:          "Schedule date",
-    statusDefault:      "Enter a city to explore connections",
+    statusDefault:      "Pick a country, then search for a city",
+    statusPickDate:     "Station selected — pick a date then press Search",
     sidebarHeader:      "Routes",
-    emptyStateText:     "Search for a station above to see all cities reachable by direct train.",
+    emptyStateText:     "Select a country, search for a station, then pick a date to see all cities reachable by direct train.",
     loadingConnections: "Loading connections…",
     loadingList:        "Loading…",
     loadingProgress:    (current, total) => `Fetching routes… ${current}/${total}`,
@@ -19,15 +24,23 @@ const TRANSLATIONS = {
     errorPrefix:        "Error",
     connectionError:    "Connection error",
     exploreFrom:        "Explore from here",
-    metaDescription:    "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
+    countryLabel:       "Country",
+    metaDescription:    (country) => country === "it"
+                          ? "Explore all cities reachable by direct train from any Italian station. Live schedules powered by the Navitia API."
+                          : "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
   },
   fr: {
-    pageTitle:          "Train Map — Connexions directes en France",
-    searchPlaceholder:  "Rechercher une ville ou une gare…",
+    pageTitle:          (country) => country === "it"
+                          ? "Train Map — Connexions directes en Italie"
+                          : "Train Map — Connexions directes en France",
+    searchPlaceholder:  (country) => country === "it"
+                          ? "Rechercher une ville ou une gare en Italie…"
+                          : "Rechercher une ville ou une gare…",
     dateTitle:          "Date d'horaire",
-    statusDefault:      "Entrez une ville pour explorer les connexions",
+    statusDefault:      "Choisissez un pays, puis cherchez une ville",
+    statusPickDate:     "Gare sélectionnée — choisissez une date puis lancez la recherche",
     sidebarHeader:      "Lignes",
-    emptyStateText:     "Recherchez une gare ci-dessus pour voir toutes les villes accessibles en train direct.",
+    emptyStateText:     "Sélectionnez un pays, cherchez une gare, puis choisissez une date pour voir toutes les villes accessibles en train direct.",
     loadingConnections: "Chargement des connexions…",
     loadingList:        "Chargement…",
     loadingProgress:    (current, total) => `Récupération des lignes… ${current}/${total}`,
@@ -40,7 +53,10 @@ const TRANSLATIONS = {
     errorPrefix:        "Erreur",
     connectionError:    "Erreur de connexion",
     exploreFrom:        "Explorer depuis ici",
-    metaDescription:    "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
+    countryLabel:       "Pays",
+    metaDescription:    (country) => country === "it"
+                          ? "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare italienne. Horaires en temps réel via l'API Navitia."
+                          : "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
   },
 };
 

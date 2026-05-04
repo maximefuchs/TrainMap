@@ -1,10 +1,10 @@
 """
-Tests for sncf_client.py — all HTTP calls are mocked so no real token needed.
+Tests for navitia_client.py — all HTTP calls are mocked so no real token needed.
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
-import sncf_client
+import navitia_client
 
 
 # ---------------------------------------------------------------------------
@@ -138,17 +138,47 @@ def _mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
+# Tests: country configuration
+# ---------------------------------------------------------------------------
+
+
+class TestCountryConfig:
+    def test_france_uses_sncf_base_url(self):
+        url = navitia_client.get_base_url("fr")
+        assert "api.sncf.com" in url
+        assert "sncf" in url
+
+    def test_italy_raises_on_get_base_url(self):
+        """Italy uses ViaggiaTreno, not Navitia — get_base_url should explain."""
+        with pytest.raises(ValueError, match="ViaggiaTreno"):
+            navitia_client.get_base_url("it")
+
+    def test_france_token_reads_sncf_env_var(self, monkeypatch):
+        monkeypatch.setenv("SNCF_API_TOKEN", "fr-test-token")
+        assert navitia_client.get_token("fr") == "fr-test-token"
+
+    def test_italy_token_returns_not_required(self):
+        """Italy's get_token always returns a truthy sentinel — no env var needed."""
+        token = navitia_client.get_token("it")
+        assert token  # truthy — so token checks in main.py pass for Italy
+
+    def test_unsupported_country_raises(self):
+        with pytest.raises(ValueError, match="Unsupported country"):
+            navitia_client.get_base_url("de")
+
+
+# ---------------------------------------------------------------------------
 # Tests: search_stations
 # ---------------------------------------------------------------------------
 
 
 class TestSearchStations:
     def test_returns_parsed_stations(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             instance = MockClient.return_value.__enter__.return_value
             instance.get.return_value = _mock_response(PLACES_RESPONSE)
 
-            results = sncf_client.search_stations("Paris")
+            results = navitia_client.search_stations("Paris")
 
         assert len(results) == 2
         paris = results[0]
@@ -158,30 +188,44 @@ class TestSearchStations:
         assert abs(paris["lon"] - 2.373481) < 0.001
 
     def test_empty_query_returns_empty(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             instance = MockClient.return_value.__enter__.return_value
             instance.get.return_value = _mock_response({"places": []})
 
-            results = sncf_client.search_stations("")
+            results = navitia_client.search_stations("")
 
         assert results == []
 
     def test_correct_endpoint_called(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             instance = MockClient.return_value.__enter__.return_value
             instance.get.return_value = _mock_response({"places": []})
 
-            sncf_client.search_stations("Lyon", count=5)
+            navitia_client.search_stations("Lyon", count=5)
 
         call_args = instance.get.call_args
         assert "/places" in call_args[0][0]
         assert call_args[1]["params"]["q"] == "Lyon"
         assert call_args[1]["params"]["count"] == 5
 
+    def test_italy_search_delegates_to_trenitalia(self):
+        """Italy searches go to trenitalia_client, not httpx directly."""
+        with patch("navitia_client.trenitalia_client.search_stations") as mock_search:
+            mock_search.return_value = [{"id": "S08409", "name": "Roma Termini", "lat": 41.9, "lon": 12.5}]
+            results = navitia_client.search_stations("Roma", country="it")
+        mock_search.assert_called_once_with("Roma", count=10)
+        assert results[0]["id"] == "S08409"
 
-# ---------------------------------------------------------------------------
-# Tests: _parse_navitia_time — kept for when timetables are re-added
-# ---------------------------------------------------------------------------
+    def test_france_search_uses_sncf_base_url(self):
+        with patch("navitia_client.httpx.Client") as MockClient:
+            instance = MockClient.return_value.__enter__.return_value
+            instance.get.return_value = _mock_response({"places": []})
+
+            navitia_client.search_stations("Paris", country="fr")
+
+        call_args = instance.get.call_args
+        url = call_args[0][0]
+        assert "api.sncf.com" in url
 
 
 # ---------------------------------------------------------------------------
@@ -207,11 +251,11 @@ class TestGetDirectConnections:
         return instance
 
     def _get_result(self, MockClient):
-        return sncf_client.get_direct_connections(self.ORIGIN_SA_ID)
+        return navitia_client.get_direct_connections(self.ORIGIN_SA_ID)
 
     def test_returns_connections_and_route_paths(self):
         """Result must be a dict with both keys."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
         assert "connections" in result
@@ -219,7 +263,7 @@ class TestGetDirectConnections:
 
     def test_filters_non_train_routes(self):
         """Bus routes should not produce connections."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -228,7 +272,7 @@ class TestGetDirectConnections:
         assert "stop_area:SNCF:87751008" in ids  # Marseille
 
     def test_line_codes_included(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -238,16 +282,16 @@ class TestGetDirectConnections:
         assert "TGV" in lyon["lines"]
 
     def test_no_routes_returns_empty(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             instance = MockClient.return_value.__enter__.return_value
             instance.get.return_value = _mock_response({"routes": []})
-            result = sncf_client.get_direct_connections(self.ORIGIN_SA_ID)
+            result = navitia_client.get_direct_connections(self.ORIGIN_SA_ID)
 
         assert result["connections"] == []
         assert result["route_paths"] == []
 
     def test_coordinates_included(self):
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -261,7 +305,7 @@ class TestGetDirectConnections:
 
     def test_route_path_has_correct_structure(self):
         """Each route path must have line_code and stops."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -273,7 +317,7 @@ class TestGetDirectConnections:
 
     def test_route_path_starts_with_origin(self):
         """The first stop of every route path must be the origin station."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -282,7 +326,7 @@ class TestGetDirectConnections:
 
     def test_route_path_ordered_stops(self):
         """Route path for TGV fixture should be Paris → Lyon → Marseille."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
@@ -296,11 +340,10 @@ class TestGetDirectConnections:
 
     def test_route_paths_deduplicated(self):
         """Identical stop sequences from different schedules should not be duplicated."""
-        # Feed the same schedule twice (simulating two schedule variants for one route)
         doubled_response = {
             "route_schedules": ROUTE_SCHEDULES_RESPONSE["route_schedules"] * 2
         }
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             instance = MockClient.return_value.__enter__.return_value
 
             def side_effect(url, **kwargs):
@@ -311,16 +354,23 @@ class TestGetDirectConnections:
                 return _mock_response({})
 
             instance.get.side_effect = side_effect
-            result = sncf_client.get_direct_connections(self.ORIGIN_SA_ID)
+            result = navitia_client.get_direct_connections(self.ORIGIN_SA_ID)
 
         # Still only one unique path (Paris → Lyon → Marseille)
         assert len(result["route_paths"]) == 1
 
     def test_route_path_line_code(self):
         """Route path should carry the correct line code."""
-        with patch("sncf_client.httpx.Client") as MockClient:
+        with patch("navitia_client.httpx.Client") as MockClient:
             self._setup_mock_client(MockClient)
             result = self._get_result(MockClient)
 
         path = result["route_paths"][0]
         assert path["line_code"] == "TGV"
+
+    def test_italy_country_param_delegates_to_trenitalia(self):
+        """When country='it', get_direct_connections delegates to trenitalia_client."""
+        with patch("navitia_client.trenitalia_client.get_direct_connections") as mock_it:
+            mock_it.return_value = {"connections": [], "route_paths": []}
+            navitia_client.get_direct_connections(self.ORIGIN_SA_ID, country="it")
+        mock_it.assert_called_once()
