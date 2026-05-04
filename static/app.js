@@ -20,7 +20,7 @@ const progressWrap  = document.getElementById("progress-bar-wrap");
 const progressBar   = document.getElementById("progress-bar");
 const langSelect    = document.getElementById("lang-select");
 const countrySelect = document.getElementById("country-select");
-const emptyText     = document.getElementById("empty-state-text");
+const searchBtn     = document.getElementById("search-btn");
 
 // ── Country selection ─────────────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ countrySelect.addEventListener("change", () => {
 
   // Cancel any in-flight search before clearing the map
   cancelActiveStream();
+  _pickerOpenedForStation = false;
 
   // Clear map layers, markers, and sidebar route list
   clearMap();
@@ -61,6 +62,7 @@ countrySelect.addEventListener("change", () => {
 
   // Reset status bar to idle
   showStatus(t("statusDefault"), "");
+  updateSearchBtn();
 
   // Re-centre the map for the new country
   const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
@@ -93,7 +95,8 @@ function applyLang() {
   input.placeholder             = t("searchPlaceholder", selectedCountry);
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
-  emptyText.textContent         = t("emptyStateText");
+  const currentEmptyText = document.getElementById("empty-state-text");
+  if (currentEmptyText) currentEmptyText.textContent = t("emptyStateText");
 
   // Update <meta name="description"> and Open Graph tags so that search
   // engines and social-media link previews reflect the active language.
@@ -120,12 +123,32 @@ applyLang();   // apply on first load
 
 // ── Date picker ───────────────────────────────────────────────────────────────
 
-// Default to today's date.
-dateInput.value = new Date().toISOString().slice(0, 10);
+// Disallow past dates.
+const _today = new Date().toISOString().slice(0, 10);
+dateInput.min   = _today;
+dateInput.value = _today;
 
-// Step 3: date chosen → launch the search.
+let _pickerOpenedForStation = false;
+
+// When the date changes just close the picker — search is triggered by the button.
 dateInput.addEventListener("change", () => {
-  if (selectedStation) selectStation(selectedStation);
+  _pickerOpenedForStation = false;
+  dateInput.blur();
+  updateSearchBtn();
+});
+
+dateInput.addEventListener("focusout", () => {
+  _pickerOpenedForStation = false;
+});
+
+// ── Search button ─────────────────────────────────────────────────────────────
+
+function updateSearchBtn() {
+  searchBtn.disabled = !(selectedStation && dateInput.value);
+}
+
+searchBtn.addEventListener("click", () => {
+  if (selectedStation && dateInput.value) selectStation(selectedStation);
 });
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
@@ -194,15 +217,36 @@ function onStationSelected(station) {
 
   map.setView([station.lat, station.lon], 7, { animate: true });
   showStatus(t("statusPickDate"), "");
+  updateSearchBtn();
 
-  // Step 2 done → move focus to the date picker
-  dateInput.focus();
+  // Step 2 done → open the date picker.
+  // showPicker() opens the native calendar; the flag lets the click handler
+  // know to fire the search if the user confirms the already-selected date.
+  _pickerOpenedForStation = true;
+  try {
+    dateInput.showPicker();
+  } catch {
+    // showPicker() may throw if not triggered by a direct user gesture in some
+    // browsers — fall back to plain focus so the picker is at least reachable.
+    dateInput.focus();
+  }
 }
 
 // Step 3 / main search flow: launches the SSE stream for the selected station
 // and date, progressively rendering routes as they arrive.
 async function selectStation(station) {
   selectedStation = station;
+
+  cancelActiveStream();
+  clearMap();
+
+  // Re-place the origin marker (clearMap removed it).
+  originMarker = L.marker([station.lat, station.lon], {
+    icon: originIcon,
+    zIndexOffset: 1000,
+  })
+    .addTo(map)
+    .bindPopup(`<strong>${station.name}</strong><br>${t("originStation")}`);
 
   showStatus(t("loadingConnections"), "loading");
   connList.innerHTML = `<div id="empty-state"><p>${t("loadingList")}</p></div>`;
