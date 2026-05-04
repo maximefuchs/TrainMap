@@ -96,8 +96,8 @@ def search_cities(q: str, country: str = "fr") -> list[dict]:
 # City enumeration (internal — builds the destination pool)
 # ---------------------------------------------------------------------------
 
-def _fetch_cities_for_query(q: str, country_code: str) -> list[dict]:
-    """Fetch all FlixBus cities whose name starts with *q* in *country_code*."""
+def _fetch_cities_for_query(q: str) -> list[dict]:
+    """Fetch all FlixBus cities whose name starts with *q* across all of Europe."""
     try:
         resp = httpx.get(
             "https://global.api.flixbus.com/search/autocomplete/cities",
@@ -105,7 +105,6 @@ def _fetch_cities_for_query(q: str, country_code: str) -> list[dict]:
                 "q": q,
                 "lang": "en",
                 "flixbus_cities_only": "true",
-                "country": country_code,
             },
             timeout=_TIMEOUT,
         )
@@ -117,19 +116,21 @@ def _fetch_cities_for_query(q: str, country_code: str) -> list[dict]:
 
 def _build_city_cache(country: str) -> dict[str, dict]:
     """
-    Build (or return cached) mapping city_id → city_dict for *country*.
+    Build (or return cached) mapping city_id → city_dict.
 
-    Queries the autocomplete endpoint for each letter a–z and deduplicates by ID.
+    Destinations are all FlixBus cities in Europe (no country filter),
+    so bus searches from any origin show the full range of reachable cities.
+    The cache is shared across all countries and keyed as "europe".
     """
+    cache_key = "europe"
     with _cache_lock:
-        if country in _city_cache:
-            return _city_cache[country]
+        if cache_key in _city_cache:
+            return _city_cache[cache_key]
 
-    cc = COUNTRY_CODES.get(country, country)
     cities: dict[str, dict] = {}
 
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futs = {ex.submit(_fetch_cities_for_query, q, cc): q for q in _ENUM_QUERIES}
+        futs = {ex.submit(_fetch_cities_for_query, q): q for q in _ENUM_QUERIES}
         for fut in as_completed(futs):
             for c in fut.result():
                 cid = c.get("id")
@@ -148,7 +149,7 @@ def _build_city_cache(country: str) -> dict[str, dict]:
                 }
 
     with _cache_lock:
-        _city_cache[country] = cities
+        _city_cache[cache_key] = cities
     return cities
 
 
