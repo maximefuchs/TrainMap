@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TrainMap — Direct train connections in France</title>
-  <meta name="description" content="Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API." />
+  <title>TrainMap — Direct train connections</title>
+  <meta name="description" content="Explore all cities reachable by direct train from any station. Live schedules powered by the Navitia API." />
   <meta name="robots" content="index, follow" />
 
   <!-- Open Graph — controls how the link looks when shared on social media / messaging apps -->
   <meta property="og:type"        content="website" />
-  <meta property="og:title"       content="TrainMap — Direct train connections in France" />
-  <meta property="og:description" content="Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API." />
+  <meta property="og:title"       content="TrainMap — Direct train connections" />
+  <meta property="og:description" content="Explore all cities reachable by direct train from any station. Live schedules powered by the Navitia API." />
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚄</text></svg>" />
 
@@ -29,7 +29,7 @@
     <input
       id="station-input"
       type="text"
-      placeholder="Search a French city or station…"
+      placeholder="Search a city or station…"
       autocomplete="off"
     />
     <div id="autocomplete"></div>
@@ -38,6 +38,13 @@
   <input id="date-input" type="date" title="Schedule date" />
 
   <span id="status">Enter a city to explore connections</span>
+
+  <div id="country-toggle">
+    <select id="country-select" aria-label="Country">
+      <option value="fr">🇫🇷 France</option>
+      <option value="it">🇮🇹 Italy</option>
+    </select>
+  </div>
 
   <div id="lang-toggle">
     <select id="lang-select" aria-label="Language">

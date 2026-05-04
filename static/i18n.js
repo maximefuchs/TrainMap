@@ -1,8 +1,12 @@
 // ── Translations ──────────────────────────────────────────────────────────────
 const TRANSLATIONS = {
   en: {
-    pageTitle:          "Train Map — Direct Connections in France",
-    searchPlaceholder:  "Search a French city or station…",
+    pageTitle:          (country) => country === "it"
+                          ? "Train Map — Direct Connections in Italy"
+                          : "Train Map — Direct Connections in France",
+    searchPlaceholder:  (country) => country === "it"
+                          ? "Search an Italian city or station…"
+                          : "Search a French city or station…",
     dateTitle:          "Schedule date",
     statusDefault:      "Enter a city to explore connections",
     sidebarHeader:      "Routes",
@@ -19,11 +23,18 @@ const TRANSLATIONS = {
     errorPrefix:        "Error",
     connectionError:    "Connection error",
     exploreFrom:        "Explore from here",
-    metaDescription:    "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
+    countryLabel:       "Country",
+    metaDescription:    (country) => country === "it"
+                          ? "Explore all cities reachable by direct train from any Italian station. Live schedules powered by the Navitia API."
+                          : "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
   },
   fr: {
-    pageTitle:          "Train Map — Connexions directes en France",
-    searchPlaceholder:  "Rechercher une ville ou une gare…",
+    pageTitle:          (country) => country === "it"
+                          ? "Train Map — Connexions directes en Italie"
+                          : "Train Map — Connexions directes en France",
+    searchPlaceholder:  (country) => country === "it"
+                          ? "Rechercher une ville ou une gare en Italie…"
+                          : "Rechercher une ville ou une gare…",
     dateTitle:          "Date d'horaire",
     statusDefault:      "Entrez une ville pour explorer les connexions",
     sidebarHeader:      "Lignes",
@@ -40,7 +51,10 @@ const TRANSLATIONS = {
     errorPrefix:        "Erreur",
     connectionError:    "Erreur de connexion",
     exploreFrom:        "Explorer depuis ici",
-    metaDescription:    "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
+    countryLabel:       "Pays",
+    metaDescription:    (country) => country === "it"
+                          ? "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare italienne. Horaires en temps réel via l'API Navitia."
+                          : "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
   },
 };
 

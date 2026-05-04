@@ -44,7 +44,7 @@ input.addEventListener("focus", () => { if (ac.innerHTML) ac.style.display = "bl
 
 async function fetchSuggestions(q) {
   try {
-    const res  = await fetch(`/api/stations?q=${encodeURIComponent(q)}`);
+    const res  = await fetch(`/api/stations?q=${encodeURIComponent(q)}&country=${encodeURIComponent(selectedCountry)}`);
     const data = await res.json();
 
     if (!res.ok) {

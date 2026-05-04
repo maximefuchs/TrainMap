@@ -2,6 +2,7 @@
 // Entry point — wires together all modules and owns the features that don't
 // belong cleanly to a single sub-module:
 //   • i18n: applying translations to the DOM
+//   • Country selector: switches data source between France and Italy
 //   • Date picker: default value + triggering a re-fetch on change
 //   • Progress bar: show/hide/update during SSE streaming
 //   • Status bar: display info / loading / error messages
@@ -13,24 +14,65 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // DOM refs shared across several modules
-const status       = document.getElementById("status");
-const dateInput    = document.getElementById("date-input");
-const progressWrap = document.getElementById("progress-bar-wrap");
-const progressBar  = document.getElementById("progress-bar");
-const langSelect   = document.getElementById("lang-select");
-const emptyText    = document.getElementById("empty-state-text");
+const status        = document.getElementById("status");
+const dateInput     = document.getElementById("date-input");
+const progressWrap  = document.getElementById("progress-bar-wrap");
+const progressBar   = document.getElementById("progress-bar");
+const langSelect    = document.getElementById("lang-select");
+const countrySelect = document.getElementById("country-select");
+const emptyText     = document.getElementById("empty-state-text");
+
+// ── Country selection ─────────────────────────────────────────────────────────
+
+// Default map centres and zoom levels per country
+const COUNTRY_MAP_VIEW = {
+  fr: { center: [46.5, 2.5],  zoom: 6 },
+  it: { center: [42.5, 12.5], zoom: 6 },
+};
+
+// Persisted across sessions; defaults to France
+const _savedCountry = localStorage.getItem("country");
+let selectedCountry = (_savedCountry === "fr" || _savedCountry === "it")
+  ? _savedCountry
+  : "fr";
+
+countrySelect.value = selectedCountry;
+
+countrySelect.addEventListener("change", () => {
+  selectedCountry = countrySelect.value;
+  localStorage.setItem("country", selectedCountry);
+
+  // Clear current results and reset state
+  clearMap();
+  selectedStation = null;
+  input.value     = "";
+
+  // Re-centre the map for the new country
+  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
+  map.setView(view.center, view.zoom, { animate: true });
+
+  // Update all translatable strings (placeholders, title, meta…)
+  applyLang();
+});
+
+// Set initial map view for the persisted country
+(function () {
+  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
+  map.setView(view.center, view.zoom);
+})();
 
 // ── i18n ──────────────────────────────────────────────────────────────────────
 
 // Pushes the current language's strings into every translatable DOM node,
 // including <meta> tags used by search engines and social media previews.
-// Called on page load and whenever the user switches language.
+// Called on page load, whenever the user switches language, and whenever the
+// user switches country.
 function applyLang() {
-  const description = t("metaDescription");
+  const description = t("metaDescription", selectedCountry);
 
   document.documentElement.lang = currentLang;
-  document.title                = t("pageTitle");
-  input.placeholder             = t("searchPlaceholder");
+  document.title                = t("pageTitle", selectedCountry);
+  input.placeholder             = t("searchPlaceholder", selectedCountry);
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
   emptyText.textContent         = t("emptyStateText");
@@ -38,7 +80,7 @@ function applyLang() {
   // Update <meta name="description"> and Open Graph tags so that search
   // engines and social-media link previews reflect the active language.
   document.querySelector('meta[name="description"]').setAttribute("content", description);
-  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle"));
+  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle", selectedCountry));
   document.querySelector('meta[property="og:description"]').setAttribute("content", description);
 
   // Only overwrite the status bar when it is in the idle (no class) state;
@@ -47,7 +89,8 @@ function applyLang() {
     status.textContent = t("statusDefault");
   }
 
-  langSelect.value = currentLang;
+  langSelect.value    = currentLang;
+  countrySelect.value = selectedCountry;
 }
 
 langSelect.addEventListener("change", () => {
@@ -129,7 +172,7 @@ async function selectStation(station) {
   const dateParam = dateInput.value
     ? "&date=" + dateInput.value.replace(/-/g, "")
     : "";
-  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}${dateParam}`;
+  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}${dateParam}`;
 
   const es = new EventSource(url);
 
