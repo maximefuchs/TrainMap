@@ -42,10 +42,25 @@ countrySelect.addEventListener("change", () => {
   selectedCountry = countrySelect.value;
   localStorage.setItem("country", selectedCountry);
 
-  // Clear current results and reset state
+  // Cancel any in-flight search before clearing the map
+  cancelActiveStream();
+
+  // Clear map layers, markers, and sidebar route list
   clearMap();
   selectedStation = null;
-  input.value     = "";
+
+  // Clear the station input and collapse the autocomplete dropdown
+  input.value        = "";
+  ac.innerHTML       = "";
+  ac.style.display   = "none";
+
+  // Reset sidebar counts and list to empty state
+  connCount.textContent = "0";
+  fabCount.textContent  = "0";
+  connList.innerHTML    = `<div id="empty-state"><p id="empty-state-text">${t("emptyStateText")}</p></div>`;
+
+  // Reset status bar to idle
+  showStatus(t("statusDefault"), "");
 
   // Re-centre the map for the new country
   const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
@@ -149,6 +164,18 @@ function showStatus(msg, type = "") {
 // Used by the date-picker listener to re-run the search when the date changes.
 let selectedStation = null;
 
+// Active SSE stream — kept here so it can be aborted when the user switches
+// country or starts a new search before the previous one finishes.
+let activeStream = null;
+
+function cancelActiveStream() {
+  if (activeStream) {
+    activeStream.close();
+    activeStream = null;
+  }
+  hideProgress();
+}
+
 // Step 2: called by autocomplete when the user picks a station.
 // Places the origin marker and shifts focus to the date picker — does NOT
 // launch the search yet (that only happens when the date is confirmed).
@@ -187,7 +214,10 @@ async function selectStation(station) {
     : "";
   const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}${dateParam}`;
 
+  cancelActiveStream();
+
   const es = new EventSource(url);
+  activeStream = es;
 
   // "progress" events arrive once per route as the backend finishes fetching it.
   // We use them to drive the progress bar and keep the status text up to date.
@@ -201,6 +231,7 @@ async function selectStation(station) {
   // been processed. We close the stream and hand off to renderConnections().
   es.addEventListener("done", (e) => {
     es.close();
+    activeStream = null;
     hideProgress();
 
     const data  = JSON.parse(e.data);
@@ -224,6 +255,7 @@ async function selectStation(station) {
   // network failure (e.data is empty/null).
   es.addEventListener("error", (e) => {
     es.close();
+    activeStream = null;
     hideProgress();
     if (e.data) {
       const { detail } = JSON.parse(e.data);
