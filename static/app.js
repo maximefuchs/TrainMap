@@ -38,16 +38,6 @@ let selectedCountry = (_savedCountry === "fr" || _savedCountry === "it")
 
 countrySelect.value = selectedCountry;
 
-function applyCountry() {
-  // Date picker is only meaningful for France (Navitia supports schedule dates).
-  // ViaggiaTreno is real-time only — hide the picker for Italy.
-  const dateWrap = document.getElementById("date-wrap");
-  if (dateWrap) {
-    dateWrap.hidden = (selectedCountry === "it");
-  }
-  if (selectedCountry === "it") dateInput.value = "";
-}
-
 countrySelect.addEventListener("change", () => {
   selectedCountry = countrySelect.value;
   localStorage.setItem("country", selectedCountry);
@@ -60,8 +50,6 @@ countrySelect.addEventListener("change", () => {
   // Re-centre the map for the new country
   const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
   map.setView(view.center, view.zoom, { animate: true });
-
-  applyCountry();
 
   // Update all translatable strings (placeholders, title, meta…)
   applyLang();
@@ -110,15 +98,12 @@ langSelect.addEventListener("change", () => {
   applyLang();
 });
 
-applyLang();     // apply translations on first load
-applyCountry();  // show/hide date picker based on persisted country
+applyLang();   // apply on first load
 
 // ── Date picker ───────────────────────────────────────────────────────────────
 
-// Leave the date picker empty by default — the backend will use the current
-// time, which is what ViaggiaTreno requires for live departure data.
-// (ViaggiaTreno only serves real-time data; future dates return 204.)
-dateInput.value = "";
+// Default to today so the user gets today's schedule on first load.
+dateInput.value = new Date().toISOString().slice(0, 10);
 
 // Re-run the search whenever the date changes (if a station is already selected).
 dateInput.addEventListener("change", () => {

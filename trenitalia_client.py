@@ -182,6 +182,69 @@ def _fetch_station_coords(station_id: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Train stop resolution
+# ---------------------------------------------------------------------------
+
+# Cache: train_num (int) → {"orig_id": str, "ts": str}  (today-anchored)
+_TRAIN_ANCHOR_CACHE: dict[int, dict] = {}
+
+
+def _fetch_train_anchor(train_num: int) -> Optional[dict]:
+    """
+    Return {"orig_id": str, "ts": str} for *train_num* using today's schedule.
+
+    ViaggiaTreno's andamentoTreno endpoint only works with a today-anchored
+    timestamp — even for trains queried on a future date the route stops are
+    identical, so we resolve stops via today's anchor.
+    """
+    if train_num in _TRAIN_ANCHOR_CACHE:
+        return _TRAIN_ANCHOR_CACHE[train_num]
+    try:
+        r = _get(f"cercaNumeroTrenoTrenoAutocomplete/{train_num}", timeout=5)
+        if r.status_code != 200 or not r.text.strip():
+            return None
+        # Format: "9628 - NAPOLI CENTRALE - 04/05/26|9628-S09218-1777845600000\n"
+        # There may be multiple lines (train runs from several origins); take first.
+        line = r.text.strip().splitlines()[0]
+        after_pipe = line.split("|")[1]          # "9628-S09218-1777845600000"
+        parts = after_pipe.split("-")
+        # parts: [train_num, station_id_part1, (station_id_part2 if S-prefixed), ts]
+        # Station IDs can contain hyphens? No — they are like S09218. Safe to split on -
+        # Last element is the timestamp, second-to-last is the station id segment after S
+        # Actually: "9628-S09218-1777845600000" → ["9628", "S09218", "1777845600000"]
+        ts = parts[-1]
+        orig_id = parts[-2]  # e.g. "S09218" — but split on "-" breaks "S09218" correctly
+        result = {"orig_id": orig_id, "ts": ts}
+        _TRAIN_ANCHOR_CACHE[train_num] = result
+        return result
+    except Exception as e:
+        print(f"[ViaggiaTreno] anchor lookup failed for {train_num}: {e}")
+        return None
+
+
+def _fetch_train_stops(train_num: int, orig_id: str, ts) -> Optional[dict]:
+    """
+    Return the andamentoTreno JSON for *train_num*, falling back to the
+    today-anchored orig/ts when the direct call returns 204 (future date).
+    """
+    # First try with the supplied orig_id / ts (works for today's trains)
+    r = _get(f"andamentoTreno/{orig_id}/{train_num}/{ts}")
+    if r.status_code == 200 and r.content:
+        return r.json()
+
+    # 204 or empty → train is future/not-yet-running; use today's anchor
+    anchor = _fetch_train_anchor(train_num)
+    if anchor is None:
+        return None
+
+    r2 = _get(f"andamentoTreno/{anchor['orig_id']}/{train_num}/{anchor['ts']}")
+    if r2.status_code == 200 and r2.content:
+        return r2.json()
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Direct connections
 # ---------------------------------------------------------------------------
 
@@ -239,12 +302,11 @@ def get_direct_connections(
             continue
 
         try:
-            r2 = _get(f"andamentoTreno/{orig_id}/{train_num}/{ts}")
-            if r2.status_code != 200:
+            train_data = _fetch_train_stops(train_num, orig_id, ts)
+            if train_data is None:
                 continue
-            train_data = r2.json()
         except Exception as e:
-            print(f"[ViaggiaTreno] andamentoTreno failed for {train_num}: {e}")
+            print(f"[ViaggiaTreno] stop fetch failed for {train_num}: {e}")
             continue
 
         stops_raw = train_data.get("fermate", [])
