@@ -39,3 +39,6 @@ durations for stations that come before the origin in the route order.
         Then submit the URL in Search Console.
     - Get inbound links — SEO ranking is mostly about other sites linking to you. Post it on Reddit (r/france, r/train, r/webdev), Hacker News "Show HN", or relevant French communities. A single link from a well-trafficked page beats any amount of meta-tag tuning.
     - Render cold starts — Render's free tier spins down after inactivity, which causes a ~30 s delay on the first visit. Google's crawler may time out and penalise the page. Consider upgrading to a paid tier or using a cron job to ping the site every 10 minutes to keep it warm.
+
+- Do the same with buses
+- Add Germany, Spain, Italy, Switzerland, Belgium, Netherdands, Luxembourg

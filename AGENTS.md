@@ -59,15 +59,24 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
 |--------|------|-------------|
 | `GET` | `/api/stations?q=<query>` | Autocomplete station names |
 | `GET` | `/api/connections/stream?station_id=<id>&date=<YYYYMMDD>` | SSE stream of direct connections |
+| `GET` | `/api/connections?station_id=<id>&date=<YYYYMMDD>` | Non-streaming equivalent (same payload) |
+
+- `date` is optional in both connection endpoints. When omitted the backend
+  queries from the current moment (not midnight), so results reflect trains
+  still running today.
 
 ## Environment
 - Requires `.env` with `SNCF_API_TOKEN=<uuid>`. Copy from `.env.example`.
 - Run locally: `uv run uvicorn main:app --reload`
+- Install dev deps: `uv sync --extra dev` (adds `pytest-asyncio`)
 - Run tests (no token needed, fully mocked): `uv run pytest test_sncf_client.py -v`
 - Deployed on Render (free tier — cold starts after inactivity).
 
 ## Known constraints / gotchas
 - The SNCF API token is required for any backend functionality. Tests mock it.
+- `sncf_client` wraps `httpx.Client` in a `_LoggingClient`. Tests must mock
+  `sncf_client.httpx.Client` (not `httpx.Client` directly) — see existing
+  test fixtures for the correct patch target.
 - Render free tier spins down after inactivity (~30 s cold start).
 - OSM tile servers have a usage policy — do not change `maxZoom` above 19 or
   remove the attribution.
