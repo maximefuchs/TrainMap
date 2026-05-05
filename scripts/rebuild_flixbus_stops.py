@@ -3,7 +3,7 @@
 Rebuild flixbus_stops.json.gz from the latest FlixBus GTFS feed.
 
 Downloads the GTFS zip from the MobilityData public catalog, processes it
-into a compact lookup table, and writes flixbus_stops.json.gz to the project root.
+into a compact lookup table, and writes providers/data/flixbus_stops.json.gz.
 
 Usage:
     uv run python3 scripts/rebuild_flixbus_stops.py
@@ -34,7 +34,7 @@ GTFS_URL = (
     "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/"
     "de-unknown-flixbus-gtfs-853.zip?alt=media"
 )
-OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "flixbus_stops.json.gz")
+OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "providers", "data", "flixbus_stops.json.gz")
 
 
 def main():

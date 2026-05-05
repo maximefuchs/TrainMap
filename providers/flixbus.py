@@ -77,7 +77,7 @@ _TIMEOUT = 10
 #
 # The file is loaded once at module import time (2.5 MB gzipped, ~instant).
 
-_GTFS_PATH = os.path.join(os.path.dirname(__file__), "flixbus_stops.json.gz")
+_GTFS_PATH = os.path.join(os.path.dirname(__file__), "data", "flixbus_stops.json.gz")
 
 def _load_gtfs_stops() -> dict:
     try:

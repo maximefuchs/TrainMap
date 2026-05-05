@@ -17,7 +17,6 @@
 ## UI / UX
 
 - put city in the center of the map when clicking on it
-- open date picker after selection of city
 - highlight the route when hovering in the list
 - show routes on map while the rest is still loading
 - put country picker after train or bus picker (if bus, dont show country picker)
@@ -25,7 +24,6 @@
 
 # Bugs
 
-- dont allow date picker before today
 - no trains found for date next month
 
 # Other

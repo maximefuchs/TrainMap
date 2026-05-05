@@ -28,12 +28,12 @@ all intermediate stops with their scheduled times.
   take `country` as their first arg; `searchPlaceholder` also takes `mode`.
 
 ## Multi-country / multi-mode architecture
-- `navitia_client.py` is the train dispatcher. Handles France (Navitia) and
-  delegates Italy calls to `trenitalia_client.py`.
-- `trenitalia_client.py` wraps the ViaggiaTreno unofficial API. No token needed.
-  Station coordinates come from the bundled `trenitalia_stations.csv` (2963 entries);
+- `providers/navitia.py` is the train dispatcher. Handles France (Navitia) and
+  delegates Italy calls to `providers/trenitalia.py`.
+- `providers/trenitalia.py` wraps the ViaggiaTreno unofficial API. No token needed.
+  Station coordinates come from the bundled `providers/data/trenitalia_stations.csv` (2963 entries);
   stations missing from the CSV are fetched live and cached in memory.
-- `flixbus_client.py` wraps the FlixBus public search API. No token needed.
+- `providers/flixbus.py` wraps the FlixBus public search API. No token needed.
   Works at **city** level (not station level). Enumerates all European cities via
   a–z autocomplete queries (26 queries, ~215 cities, no country filter), then checks
   each as a destination in parallel (`ThreadPoolExecutor(max_workers=10)`). Results
@@ -50,7 +50,7 @@ all intermediate stops with their scheduled times.
   **not used**.
 - `route_paths` for bus mode is built from the bundled GTFS lookup first, falling
   back to city-level legs from the search response when GTFS has no entry.
-- GTFS lookup file: `flixbus_stops.json.gz` (~7.4 MB compressed). Structure:
+- GTFS lookup file: `providers/data/flixbus_stops.json.gz` (~7.4 MB compressed). Structure:
   `dep_station_id → arr_station_id → [{t: "HH:MM", s: [[id, name, lat, lon, "HH:MM"], ...]}]`
   Every `(stop_i, stop_j)` sub-pair within each GTFS trip is indexed (i < j), so
   mid-route boarding **and** mid-route alighting are both handled.
@@ -61,7 +61,7 @@ all intermediate stops with their scheduled times.
 - Trips keyed by `(dep_iso, arr_station_id)` in `get_direct_connections` so that
   buses departing at the same time but serving different destination stations (e.g.
   Frankfurt city centre vs Frankfurt Airport) each get their own route_path.
-- `flixbus_client.httpx.get` must be mocked in tests (not `httpx.get` directly).
+- `providers.flixbus.httpx.get` must be mocked in tests (not `httpx.get` directly).
 
 ## Scheduled times in route_paths
 - Each `route_path` carries top-level `departure_time` and `arrival_time` (HH:MM)
@@ -78,7 +78,7 @@ all intermediate stops with their scheduled times.
 - Script: `scripts/rebuild_flixbus_stops.py`
 - Downloads the latest FlixBus GTFS feed from MobilityData
   (`de-unknown-flixbus-gtfs-853`), indexes all `(stop_i, stop_j)` sub-pairs with
-  per-stop departure times, and writes `flixbus_stops.json.gz`.
+  per-stop departure times, and writes `providers/data/flixbus_stops.json.gz`.
 - Run: `uv run python3 scripts/rebuild_flixbus_stops.py` (~10 s, requires internet).
 
 ## Italy / ViaggiaTreno specifics
@@ -150,19 +150,19 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
 - Run locally: `uv run uvicorn main:app --reload`
 - Install dev deps: `uv sync --extra dev` (adds `pytest-asyncio`)
 - Run tests (no token needed, fully mocked):
-  `uv run pytest test_navitia_client.py test_flixbus_client.py -v`
+  `uv run pytest -v`
 - Refresh FlixBus GTFS stops: `uv run python3 scripts/rebuild_flixbus_stops.py`
 - Deployed on Render (free tier — cold starts after inactivity).
 
 ## Known constraints / gotchas
-- `navitia_client` wraps `httpx.Client` in a `_LoggingClient`. Tests must mock
-  `navitia_client.httpx.Client` (not `httpx.Client` directly).
-- `trenitalia_client` uses `httpx.get()` directly. Mock `trenitalia_client.httpx.get`.
-- `flixbus_client` uses `httpx.get()` directly. Mock `flixbus_client.httpx.get`.
+- `providers.navitia` wraps `httpx.Client` in a `_LoggingClient`. Tests must mock
+  `providers.navitia.httpx.Client` (not `httpx.Client` directly).
+- `providers.trenitalia` uses `httpx.get()` directly. Mock `providers.trenitalia.httpx.get`.
+- `providers.flixbus` uses `httpx.get()` directly. Mock `providers.flixbus.httpx.get`.
 - The ViaggiaTreno API is unofficial and undocumented by Trenitalia; it could
   change without notice. The date format for `partenze` must be the JS-style
   `"Mon May 04 2026 10:00:00 GMT+0100"` string, URL-encoded.
-- `trenitalia_stations.csv` is from a 2015 dump; newer stations (e.g. Napoli Afragola)
+- `providers/data/trenitalia_stations.csv` is from a 2015 dump; newer stations (e.g. Napoli Afragola)
   are missing and fetched live. Stations with `N/A` coordinates are skipped.
 - FlixBus intermediate stops endpoint (`/search/service/v4/rides/<id>/stops`) requires
   auth (403) — **not used**. Intermediate stop coords and times come from the bundled
@@ -172,7 +172,7 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
   the sequence. This corrects systematic offset but cannot fix genuine schedule changes.
 - FlixBus city cache is built once per server session via a–z queries (no country filter).
   Cold start adds ~2 s on first bus search.
-- `flixbus_stops.json.gz` (~7.4 MB compressed): each stop entry is
+- `providers/data/flixbus_stops.json.gz` (~7.4 MB compressed): each stop entry is
   `[id, name, lat, lon, "HH:MM"]`; the 5th element is the GTFS departure time.
   Old files with 4-element stop arrays are handled gracefully (`departure_time` defaults
   to `""`). Run `rebuild_flixbus_stops.py` to regenerate.

@@ -11,8 +11,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-import navitia_client
-import flixbus_client
+from providers import navitia as navitia_client
+from providers import flixbus as flixbus_client
 
 app = FastAPI(title="Train Map API")
 

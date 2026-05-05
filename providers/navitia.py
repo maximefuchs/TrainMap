@@ -18,7 +18,7 @@ from typing import Optional
 import httpx
 from dotenv import load_dotenv
 
-import trenitalia_client
+from providers import trenitalia as trenitalia_client
 
 load_dotenv()
 

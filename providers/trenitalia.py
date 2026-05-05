@@ -31,7 +31,7 @@ import httpx
 # Station coordinate lookup table (loaded once at import time)
 # ---------------------------------------------------------------------------
 
-_CSV_PATH = Path(__file__).parent / "trenitalia_stations.csv"
+_CSV_PATH = Path(__file__).parent / "data" / "trenitalia_stations.csv"
 
 # Maps station id (e.g. "S08409") → {"name": str, "lat": float, "lon": float}
 _STATION_COORDS: dict[str, dict] = {}

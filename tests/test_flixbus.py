@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import flixbus_client
+from providers import flixbus as flixbus_client
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ NO_COORDS_CITY = {
 
 class TestSearchCities:
     def test_returns_matching_cities(self):
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response([PARIS, LYON])
             result = flixbus_client.search_cities("par", country="fr")
 
@@ -67,7 +67,7 @@ class TestSearchCities:
         assert result[0]["lon"] == pytest.approx(2.3522)
 
     def test_skips_cities_without_coords(self):
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response([PARIS, NO_COORDS_CITY])
             result = flixbus_client.search_cities("par", country="fr")
 
@@ -75,7 +75,7 @@ class TestSearchCities:
         assert result[0]["name"] == "Paris"
 
     def test_returns_empty_on_error(self):
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.side_effect = Exception("network error")
             result = flixbus_client.search_cities("par", country="fr")
 
@@ -128,7 +128,7 @@ class TestCheckConnection:
                 }
             }]
         }
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response(search_resp)
             result = flixbus_client._check_connection(
                 "city-1",
@@ -164,7 +164,7 @@ class TestCheckConnection:
                 }
             }]
         }
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response(search_resp)
             result = flixbus_client._check_connection(
                 "city-1",
@@ -188,7 +188,7 @@ class TestCheckConnection:
                 }
             }]
         }
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response(search_resp)
             result = flixbus_client._check_connection(
                 "city-1",
@@ -199,7 +199,7 @@ class TestCheckConnection:
         assert result is None
 
     def test_returns_none_on_non_200(self):
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.return_value = _mock_response({}, status_code=404)
             result = flixbus_client._check_connection(
                 "city-1",
@@ -210,7 +210,7 @@ class TestCheckConnection:
         assert result is None
 
     def test_returns_none_on_exception(self):
-        with patch("flixbus_client.httpx.get") as mock_get:
+        with patch("providers.flixbus.httpx.get") as mock_get:
             mock_get.side_effect = Exception("timeout")
             result = flixbus_client._check_connection(
                 "city-1",
@@ -259,9 +259,9 @@ class TestGetDirectConnections:
                 ]
             return None
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
-                with patch("flixbus_client._lookup_stops", return_value=None):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
+                with patch("providers.flixbus._lookup_stops", return_value=None):
                     result = flixbus_client.get_direct_connections(
                         "paris-id", date="20260506", country="fr"
                     )
@@ -291,9 +291,9 @@ class TestGetDirectConnections:
                 ]
             return None
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
-                with patch("flixbus_client._lookup_stops", return_value=None):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
+                with patch("providers.flixbus._lookup_stops", return_value=None):
                     result = flixbus_client.get_direct_connections(
                         "paris-id", date="20260506", country="fr"
                     )
@@ -332,9 +332,9 @@ class TestGetDirectConnections:
             {"id": "s-cdg",   "name": "CDG Airport", "lat": 49.01, "lon": 2.56},
         ]
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
-                with patch("flixbus_client._lookup_stops", return_value=gtfs_stops):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
+                with patch("providers.flixbus._lookup_stops", return_value=gtfs_stops):
                     result = flixbus_client.get_direct_connections(
                         "paris-id", date="20260506", country="fr"
                     )
@@ -367,9 +367,9 @@ class TestGetDirectConnections:
                 ]
             return None
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
-                with patch("flixbus_client._lookup_stops", return_value=None):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
+                with patch("providers.flixbus._lookup_stops", return_value=None):
                     result = flixbus_client.get_direct_connections(
                         "paris-id", date="20260506", country="fr"
                     )
@@ -400,9 +400,9 @@ class TestGetDirectConnections:
                 ]
             return None
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
-                with patch("flixbus_client._lookup_stops", return_value=None):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
+                with patch("providers.flixbus._lookup_stops", return_value=None):
                     result = flixbus_client.get_direct_connections(
                         "paris-id", date="20260506", country="fr"
                     )
@@ -423,8 +423,8 @@ class TestGetDirectConnections:
         def on_progress(current, total, message):
             calls.append((current, total))
 
-        with patch("flixbus_client._build_city_cache", side_effect=fake_build):
-            with patch("flixbus_client._check_connection", side_effect=fake_check):
+        with patch("providers.flixbus._build_city_cache", side_effect=fake_build):
+            with patch("providers.flixbus._check_connection", side_effect=fake_check):
                 flixbus_client.get_direct_connections(
                     "paris-id", date="20260506", country="fr",
                     progress_callback=on_progress,

@@ -55,7 +55,7 @@ Open <http://localhost:8000> in your browser.
 Tests are fully mocked — no real API token required.
 
 ```bash
-uv run pytest test_navitia_client.py test_flixbus_client.py -v
+uv run pytest tests/ -v
 ```
 
 ## Refreshing the FlixBus GTFS data
@@ -66,7 +66,7 @@ Bus intermediate stops (coordinates and scheduled times) are resolved from a bun
 uv run python3 scripts/rebuild_flixbus_stops.py
 ```
 
-This downloads the GTFS zip (~35 MB), indexes every `(stop_i, stop_j)` sub-pair within each trip with per-stop departure times, and writes a new `flixbus_stops.json.gz` (~7.4 MB compressed). Takes about 10 seconds.
+This downloads the GTFS zip (~35 MB), indexes every `(stop_i, stop_j)` sub-pair within each trip with per-stop departure times, and writes a new `providers/data/flixbus_stops.json.gz` (~7.4 MB compressed). Takes about 10 seconds.
 
 > **Schedule drift:** GTFS times are static and drift from the live FlixBus schedule over time. The backend corrects for this automatically: for each route it computes the offset between the live API departure time and the GTFS first-stop time, then shifts every intermediate stop's time by that amount. The origin stop always matches exactly; small residual drift (a few minutes) may remain at intermediate and final stops.
 
@@ -74,29 +74,33 @@ This downloads the GTFS zip (~35 MB), indexes every `(stop_i, stop_j)` sub-pair 
 
 ```
 train_map/
-├── main.py                      # FastAPI app — /api/stations, /api/connections/stream
-├── navitia_client.py            # Train dispatcher: France (Navitia) + Italy (ViaggiaTreno)
-├── trenitalia_client.py         # ViaggiaTreno client for Italy trains
-├── trenitalia_stations.csv      # Bundled Italian station coordinates (2963 entries)
-├── flixbus_client.py            # FlixBus client: city search, connections, GTFS stop lookup
-├── flixbus_stops.json.gz        # Pre-processed GTFS lookup table (~6 MB, all (i,j) stop pairs)
+├── main.py                          # FastAPI app — /api/stations, /api/connections/stream
+├── providers/                       # One module per data source
+│   ├── __init__.py
+│   ├── navitia.py                   # Train dispatcher: France (Navitia) + Italy (ViaggiaTreno)
+│   ├── trenitalia.py                # ViaggiaTreno client for Italy trains
+│   ├── flixbus.py                   # FlixBus client: city search, connections, GTFS stop lookup
+│   └── data/
+│       ├── trenitalia_stations.csv  # Bundled Italian station coordinates (2963 entries)
+│       └── flixbus_stops.json.gz    # Pre-processed GTFS lookup table (~7.4 MB, all (i,j) stop pairs)
+├── tests/
+│   ├── test_navitia.py              # Unit tests for navitia + trenitalia clients
+│   └── test_flixbus.py              # Unit tests for flixbus client
 ├── scripts/
-│   └── rebuild_flixbus_stops.py # Regenerates flixbus_stops.json.gz from latest MobilityData feed
-├── test_navitia_client.py       # Unit tests for navitia + trenitalia clients
-├── test_flixbus_client.py       # Unit tests for flixbus client
+│   └── rebuild_flixbus_stops.py     # Regenerates providers/data/flixbus_stops.json.gz
 ├── static/
-│   ├── index.html               # Page shell — imports all scripts and styles
-│   ├── style.css                # All styles (layout, sidebar, map, components)
-│   ├── i18n.js                  # Translations (EN/FR) and t() helper
-│   ├── map.js                   # Leaflet map initialisation and tile layer
-│   ├── sidebar.js               # Mobile sidebar sheet (closed / peek / open states)
-│   ├── autocomplete.js          # Station/city search input and suggestion dropdown
-│   ├── routes.js                # Route rendering, selection, stop activation, clearMap()
-│   └── app.js                   # Entry point — country/mode switch, date picker, selectStation()
+│   ├── index.html                   # Page shell — imports all scripts and styles
+│   ├── style.css                    # All styles (layout, sidebar, map, components)
+│   ├── i18n.js                      # Translations (EN/FR) and t() helper
+│   ├── map.js                       # Leaflet map initialisation and tile layer
+│   ├── sidebar.js                   # Mobile sidebar sheet (closed / peek / open states)
+│   ├── autocomplete.js              # Station/city search input and suggestion dropdown
+│   ├── routes.js                    # Route rendering, selection, stop activation, clearMap()
+│   └── app.js                       # Entry point — country/mode switch, date picker, selectStation()
 ├── pyproject.toml
 ├── requirements.txt
-├── .env                         # Your secret token (git-ignored)
-└── .env.example                 # Token template
+├── .env                             # Your secret token (git-ignored)
+└── .env.example                     # Token template
 ```
 
 ## API endpoints

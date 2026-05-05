@@ -1,7 +1,7 @@
 [project]
 name = "train-map"
 version = "0.1.0"
-description = "Interactive map of direct train connections in France, powered by the SNCF/Navitia API."
+description = "Interactive map of direct train and bus connections across Europe."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,3 +17,6 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
