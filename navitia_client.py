@@ -305,8 +305,9 @@ def _process_route_schedules(
 
         seen_ids: set[str] = set()
         stops: list[dict] = []
+        stop_times_hhmm: list[Optional[str]] = []
 
-        for _, i in row_times:
+        for secs, i in row_times:
             row = rows[i]
             sp = row.get("stop_point", {})
             sa = sp.get("stop_area", {})
@@ -316,18 +317,28 @@ def _process_route_schedules(
             seen_ids.add(sa_id)
 
             coord = sa.get("coord", {})
+            # Convert seconds-since-midnight back to HH:MM (may exceed 24h for overnight)
+            h = (secs // 3600) % 24
+            m = (secs % 3600) // 60
+            hhmm = f"{h:02d}:{m:02d}"
+
             stop = {
                 "id": sa_id,
                 "name": sa.get("name", sp.get("name", "")),
                 "lat": float(coord.get("lat", 0)),
                 "lon": float(coord.get("lon", 0)),
+                "departure_time": hhmm,
             }
             stops.append(stop)
+            stop_times_hhmm.append(hhmm)
 
             if sa_id != origin_sa_id:
                 if sa_id not in connections:
                     connections[sa_id] = {
-                        **stop,
+                        "id": sa_id,
+                        "name": sa.get("name", sp.get("name", "")),
+                        "lat": float(coord.get("lat", 0)),
+                        "lon": float(coord.get("lon", 0)),
                         "lines": [line_code] if line_code else [],
                     }
                 elif line_code and line_code not in connections[sa_id]["lines"]:
@@ -339,7 +350,11 @@ def _process_route_schedules(
 
         seq_key = tuple(s["id"] for s in path_stops_valid)
         if seq_key not in route_paths:
+            dep_time = path_stops_valid[0].get("departure_time", "")
+            arr_time = path_stops_valid[-1].get("departure_time", "")
             route_paths[seq_key] = {
                 "line_code": line_code,
+                "departure_time": dep_time,
+                "arrival_time": arr_time,
                 "stops": path_stops_valid,
             }

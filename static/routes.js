@@ -222,8 +222,13 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
     const lastName  = path.stops[stopCount - 1]?.name || "";
     const lineCode  = path.line_code || t("trainFallback");
 
+    const timeTag = (path.departure_time && path.arrival_time)
+      ? `<span class="route-times">${path.departure_time} → ${path.arrival_time}</span>`
+      : "";
+
     const label = `${firstName} — ${lastName} `
-      + `<span style="opacity:.6;font-weight:400">(${lineCode})</span>`;
+      + `<span style="opacity:.6;font-weight:400">(${lineCode})</span>`
+      + timeTag;
 
     const stopsHtml = path.stops.map((s, si) => {
       const isOrigin = s.id === origin.id;
@@ -246,7 +251,7 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
             <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
             <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
-          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.arrival_time ? `<span class="stop-time">${s.arrival_time}</span>` : ""}</div>
+          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.departure_time ? `<span class="stop-time">${s.departure_time}</span>` : (s.arrival_time ? `<span class="stop-time">${s.arrival_time}</span>` : "")}</div>
           ${isOrigin ? "" : `
             <button class="stop-btn-explore" title="${t("exploreFrom")}"
                     data-id="${s.id}" data-name="${s.name}"

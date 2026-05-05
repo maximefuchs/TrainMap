@@ -22,6 +22,8 @@
 - open date picker after selection of city
 - highlight the route when hovering in the list
 - show routes on map while the rest is still loading
+- put country picker after train or bus picker (if bus, dont show country picker)
+- combine research for countries (and remove country picker)
 
 # Bugs
 

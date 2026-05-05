@@ -444,6 +444,12 @@ def get_direct_connections(
         if not stops or len(stops) < 2:
             continue
 
+        # Stamp departure time on first stop and arrival time on last stop
+        # so the sidebar can show scheduled times next to each city name.
+        arr_time = trip.get("arrival_time", "")
+        stops[0]["departure_time"] = dep_time
+        stops[-1]["arrival_time"]  = arr_time
+
         # Deduplicate identical stop sequences
         path_key = tuple(s["id"] for s in stops)
         if path_key in seen_paths:
@@ -452,6 +458,8 @@ def get_direct_connections(
 
         route_paths.append({
             "line_code": f"FlixBus {dep_time}",
+            "departure_time": dep_time,
+            "arrival_time": trip.get("arrival_time", ""),
             "stops": stops,
         })
 
