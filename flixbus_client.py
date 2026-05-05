@@ -93,34 +93,56 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
     """
     Return the ordered stop list (dep → arr, inclusive) for a leg, or None.
 
-    dep_time_hhmm: "HH:MM" extracted from the ISO departure timestamp.
+    dep_time_hhmm: "HH:MM" from the live API departure timestamp.
     Each returned stop: {"id", "name", "lat", "lon", "departure_time"}.
-    departure_time is in "HH:MM" format (may exceed 24:00 for overnight trips
-    as stored in GTFS; the frontend displays it as-is).
 
-    When only one trip exists for the pair it is returned regardless of time
-    (schedules shift between the static GTFS snapshot and the live API).
-    When multiple trips exist the one with the closest departure time is used.
+    GTFS schedules drift relative to the live API over time.  We correct for
+    this by computing the offset between the live departure time and the GTFS
+    first-stop time, then shifting every intermediate stop's time by the same
+    amount.  This gives accurate intermediate times as long as the relative
+    spacing between stops has not changed (which is typically the case).
     """
     trips = _gtfs_stops.get(dep_station_id, {}).get(arr_station_id, [])
     if not trips:
         return None
+
+    def _hhmm_to_mins(t: str) -> int:
+        """Parse "HH:MM" (may exceed 24:00) to total minutes."""
+        h, m = t.split(":")[:2]
+        return int(h) * 60 + int(m)
+
+    def _mins_to_hhmm(mins: int) -> str:
+        """Convert total minutes to "HH:MM" within 00-23."""
+        mins = mins % (24 * 60)
+        return f"{mins // 60:02d}:{mins % 60:02d}"
+
+    target_mins = _hhmm_to_mins(dep_time_hhmm)
+
     if len(trips) == 1:
         best = trips[0]
     else:
-        def norm(t: str) -> int:
-            h, m = t.split(":")
-            return (int(h) % 24) * 60 + int(m)
-        target = norm(dep_time_hhmm)
-        best = min(trips, key=lambda e: abs(norm(e["t"]) - target))
-    def _norm_hhmm(t: str) -> str:
-        """Normalise GTFS time (may exceed 24:00) to display HH:MM within 00-23."""
-        if not t or ":" not in t:
-            return t
-        h, m = t.split(":")[:2]
-        return f"{int(h) % 24:02d}:{m}"
+        best = min(trips, key=lambda e: abs(_hhmm_to_mins(e["t"]) % (24 * 60) - target_mins))
 
-    return [{"id": s[0], "name": s[1], "lat": s[2], "lon": s[3], "departure_time": _norm_hhmm(s[4] if len(s) > 4 else "")} for s in best["s"]]
+    # Compute shift: live departure − GTFS first-stop time (in minutes, mod 24h)
+    gtfs_first_mins = _hhmm_to_mins(best["s"][0][4]) if len(best["s"][0]) > 4 else None
+    if gtfs_first_mins is not None:
+        # Work in the raw (potentially >24h) GTFS minute space so overnight
+        # trips don't wrap unexpectedly across the stop sequence.
+        shift = target_mins - (gtfs_first_mins % (24 * 60))
+        # Prefer the shift closest to zero (handles midnight-boundary cases)
+        for delta in (0, 24 * 60, -24 * 60):
+            candidate = shift + delta
+            if abs(candidate) < abs(shift):
+                shift = candidate
+    else:
+        shift = 0
+
+    result = []
+    for s in best["s"]:
+        raw_mins = _hhmm_to_mins(s[4]) if len(s) > 4 and s[4] else None
+        dep_str = _mins_to_hhmm(raw_mins + shift) if raw_mins is not None else ""
+        result.append({"id": s[0], "name": s[1], "lat": s[2], "lon": s[3], "departure_time": dep_str})
+    return result
 
 
 # ---------------------------------------------------------------------------
