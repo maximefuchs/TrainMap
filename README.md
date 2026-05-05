@@ -60,13 +60,15 @@ uv run pytest test_navitia_client.py test_flixbus_client.py -v
 
 ## Refreshing the FlixBus GTFS data
 
-Bus intermediate stops are resolved from a bundled GTFS snapshot (`flixbus_stops.json.gz`). To refresh it from the latest FlixBus feed published on [MobilityData](https://mobilitydata.org/):
+Bus intermediate stops (coordinates and scheduled times) are resolved from a bundled GTFS snapshot (`flixbus_stops.json.gz`). To refresh it from the latest FlixBus feed published on [MobilityData](https://mobilitydata.org/):
 
 ```bash
 uv run python3 scripts/rebuild_flixbus_stops.py
 ```
 
-This downloads the GTFS zip (~35 MB), indexes every `(stop_i, stop_j)` sub-pair within each trip, and writes a new `flixbus_stops.json.gz` (~6 MB compressed). Takes about 60 seconds.
+This downloads the GTFS zip (~35 MB), indexes every `(stop_i, stop_j)` sub-pair within each trip with per-stop departure times, and writes a new `flixbus_stops.json.gz` (~7.4 MB compressed). Takes about 10 seconds.
+
+> **Schedule drift:** GTFS times are static and drift from the live FlixBus schedule over time. The backend corrects for this automatically: for each route it computes the offset between the live API departure time and the GTFS first-stop time, then shifts every intermediate stop's time by that amount. The origin stop always matches exactly; small residual drift (a few minutes) may remain at intermediate and final stops.
 
 ## Project structure
 
@@ -132,6 +134,6 @@ The frontend is plain JavaScript — no framework, no bundler. Each file has a s
 | FlixBus GTFS (MobilityData) | none | Bundled snapshot; run `rebuild_flixbus_stops.py` to refresh |
 
 - Italy station coordinates come from the bundled `trenitalia_stations.csv` (2015 dump); newer stations are fetched live and cached in memory.
-- FlixBus bus stop intermediate coordinates come from the bundled GTFS snapshot. The GTFS is keyed by all `(stop_i, stop_j)` sub-pairs so mid-route boarding and alighting are both handled correctly.
+- FlixBus bus stop intermediate coordinates and scheduled times come from the bundled GTFS snapshot. The GTFS is keyed by all `(stop_i, stop_j)` sub-pairs so mid-route boarding and alighting are both handled correctly. Stop times are shift-corrected at query time using the live API departure as the anchor.
 - The FlixBus city cache (~215 European cities) is built once per server session from 26 single-letter autocomplete queries (~2 s cold start).
 - Map tiles: OpenStreetMap standard tiles (`{s}.tile.openstreetmap.org`). Respect the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/) — do not increase `maxZoom` above 19 or remove attribution.
