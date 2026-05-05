@@ -346,8 +346,11 @@ def get_direct_connections(
     # city_id → list of trip dicts (deduped)
     city_trips: dict[str, list[dict]] = {}
     city_meta:  dict[str, dict] = {}
-    # dep_iso → trip dict (first seen, for route path building)
-    trips_by_dep: dict[str, dict] = {}
+    # (dep_iso, arr_station_id) → trip dict (first seen, for route path building)
+    # Keyed by both departure time AND arrival station so that buses serving
+    # different destinations at the same departure time (e.g. Frankfurt city
+    # centre vs Frankfurt Airport) each get their own route_path entry.
+    trips_by_dep: dict[tuple, dict] = {}
     done = 0
 
     with ThreadPoolExecutor(max_workers=10) as ex:
@@ -373,10 +376,10 @@ def get_direct_connections(
                 if key not in seen:
                     seen.add(key)
                     city_trips.setdefault(cid, []).append(trip)
-                # Store trip keyed by dep_iso for route_path building (first seen wins)
-                dep_iso = trip["dep_iso"]
-                if dep_iso not in trips_by_dep:
-                    trips_by_dep[dep_iso] = trip
+                # Store trip keyed by (dep_iso, arr_station_id) for route_path building
+                path_key = (trip["dep_iso"], trip.get("arr_station_id", ""))
+                if path_key not in trips_by_dep:
+                    trips_by_dep[path_key] = trip
 
     # 2. Build connections list
     connections = []
@@ -405,7 +408,7 @@ def get_direct_connections(
     seen_paths: set[tuple] = set()
     origin_city = all_cities.get(city_id)
 
-    for dep_iso, trip in sorted(trips_by_dep.items()):
+    for (dep_iso, _arr_station), trip in sorted(trips_by_dep.items()):
         legs = trip.get("legs", [])
         if not legs:
             continue

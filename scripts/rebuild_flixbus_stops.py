@@ -12,9 +12,11 @@ The output file is used by flixbus_client._lookup_stops() to resolve intermediat
 bus stop coordinates for polyline rendering on the map.
 
 Lookup structure:
-    dep_station_id -> arr_station_id -> [{t: "HH:MM", s: [[id, name, lat, lon], ...]}]
+    dep_station_id  ->  arr_station_id  ->  [{t: "HH:MM", s: [[id, name, lat, lon], ...]}]
 
-Keyed by (any stop i, last stop of trip) so mid-route boarding is handled correctly.
+Every (stop_i, stop_j) sub-pair within each trip is indexed (i < j), so a bus
+that originates in Milan but boards in Strasbourg on its way to Hamburg is
+correctly found as Strasbourg -> Hamburg.
 """
 
 import csv
@@ -75,7 +77,9 @@ def main():
 
     print(f"  Loaded {len(trip_stops)} trips in {time.time()-t1:.1f}s")
 
-    # 3. Build lookup: (any stop i) -> (last stop) -> deduped trip slices
+    # 3. Build lookup: all (stop_i, stop_j) sub-pairs with i < j within each trip.
+    #    This ensures mid-route boarding is handled — e.g. a bus from Milan stopping
+    #    in Strasbourg on its way to Hamburg is indexed as Strasbourg -> Hamburg.
     t2 = time.time()
     lookup: dict[str, dict[str, dict]] = collections.defaultdict(
         lambda: collections.defaultdict(dict)
@@ -85,17 +89,16 @@ def main():
         n = len(seq)
         if n < 2:
             continue
-        last_sid = seq[-1][1]
-        if last_sid not in stops:
-            continue
         for i in range(n - 1):
             dep_sid = seq[i][1]
             dep_hhmm = seq[i][2][:5]
-            stop_slice = [stops[seq[k][1]] for k in range(i, n)]
-            # Deduplicate by full stop-sequence fingerprint
-            key = dep_hhmm + "|" + "|".join(s[0] for s in stop_slice)
-            if key not in lookup[dep_sid][last_sid]:
-                lookup[dep_sid][last_sid][key] = stop_slice
+            for j in range(i + 1, n):
+                arr_sid = seq[j][1]
+                stop_slice = [stops[seq[k][1]] for k in range(i, j + 1)]
+                # Deduplicate by full stop-sequence fingerprint
+                key = dep_hhmm + "|" + "|".join(s[0] for s in stop_slice)
+                if key not in lookup[dep_sid][arr_sid]:
+                    lookup[dep_sid][arr_sid][key] = stop_slice
 
     print(f"  Built lookup in {time.time()-t2:.1f}s")
 
@@ -127,3 +130,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
