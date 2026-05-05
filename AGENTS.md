@@ -50,7 +50,7 @@ routes/destinations.
   **not used**. Bus mode builds `route_paths` from `legs[]` in the search response.
 - `route_paths` for bus mode is built from legs city IDs resolved via the city cache.
   Each leg's `departure.city_id` and `arrival.city_id` are looked up in the cache to
-  get coordinates. **Intermediate stops** are resolved from the bundled `flixbus_stops.json`
+  get coordinates. **Intermediate stops** are resolved from the bundled `flixbus_stops.json.gz`
   GTFS lookup: `(dep_station_id, arr_station_id)` → ordered stop list with coordinates.
   Falls back to city-level leg endpoints when GTFS has no entry for the pair.
   The frontend draws polylines when `route_paths` is non-empty (same rendering path as trains).

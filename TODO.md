@@ -18,6 +18,8 @@ durations for stations that come before the origin in the route order.
 
 - put city in the center of the map when clicking on it
 - open date picker after selection of city
+- highlight the route when hovering in the list
+- show routes on map while the rest is still loading
 
 # Bugs
 

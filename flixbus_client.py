@@ -15,6 +15,7 @@ Key characteristics:
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import threading
@@ -61,17 +62,26 @@ _TIMEOUT = 10
 # ---------------------------------------------------------------------------
 # GTFS stop lookup
 # ---------------------------------------------------------------------------
-# flixbus_stops.json is generated from the FlixBus GTFS feed (MobilityData
-# catalog entry de-unknown-flixbus-gtfs-853). It maps:
-#   dep_station_id -> arr_station_id -> list of {t: "HH:MM", s: [[id, name, lat, lon], ...]}
-# where the list of stops is the full ordered sequence (including dep and arr).
-# The file is loaded once at module import time (~6 MB, instant).
+# flixbus_stops.json.gz is generated from the FlixBus GTFS feed (MobilityData
+# catalog entry de-unknown-flixbus-gtfs-853, updated ~weekly).
+#
+# Structure: dep_station_id -> arr_station_id -> [{t: "HH:MM", s: [[id,name,lat,lon],...]}]
+#
+# The lookup is keyed by (any intermediate stop, last stop of the trip) so that
+# boarding mid-route is handled correctly — e.g. a bus from Milan stopping in
+# Strasbourg on its way to Eindhoven is keyed as Strasbourg -> Eindhoven even
+# though Strasbourg is not the trip origin.
+#
+# arr_station_id is always the last stop of the GTFS trip, which matches the
+# station_id returned by the FlixBus search API for the arrival city.
+#
+# The file is loaded once at module import time (2.5 MB gzipped, ~instant).
 
-_GTFS_PATH = os.path.join(os.path.dirname(__file__), "flixbus_stops.json")
+_GTFS_PATH = os.path.join(os.path.dirname(__file__), "flixbus_stops.json.gz")
 
 def _load_gtfs_stops() -> dict:
     try:
-        with open(_GTFS_PATH, encoding="utf-8") as f:
+        with gzip.open(_GTFS_PATH, "rt", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -81,14 +91,14 @@ _gtfs_stops: dict = _load_gtfs_stops()
 
 def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) -> list[dict] | None:
     """
-    Return the ordered stop list for a given leg, or None if not found in GTFS.
+    Return the ordered stop list (dep → arr, inclusive) for a leg, or None.
 
-    dep_time_hhmm should be "HH:MM" (first 5 chars of the ISO departure time).
-    Each stop: {"id", "name", "lat", "lon"}.
+    dep_time_hhmm: "HH:MM" extracted from the ISO departure timestamp.
+    Each returned stop: {"id", "name", "lat", "lon"}.
 
-    If only one trip exists for this (dep, arr) pair, it is returned regardless
-    of departure time (schedules shift between GTFS snapshots and live API).
-    If multiple trips exist, the one with the closest departure time is used.
+    When only one trip exists for the pair it is returned regardless of time
+    (schedules shift between the static GTFS snapshot and the live API).
+    When multiple trips exist the one with the closest departure time is used.
     """
     trips = _gtfs_stops.get(dep_station_id, {}).get(arr_station_id, [])
     if not trips:
