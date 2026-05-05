@@ -94,7 +94,9 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
     Return the ordered stop list (dep → arr, inclusive) for a leg, or None.
 
     dep_time_hhmm: "HH:MM" extracted from the ISO departure timestamp.
-    Each returned stop: {"id", "name", "lat", "lon"}.
+    Each returned stop: {"id", "name", "lat", "lon", "departure_time"}.
+    departure_time is in "HH:MM" format (may exceed 24:00 for overnight trips
+    as stored in GTFS; the frontend displays it as-is).
 
     When only one trip exists for the pair it is returned regardless of time
     (schedules shift between the static GTFS snapshot and the live API).
@@ -111,7 +113,14 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
             return (int(h) % 24) * 60 + int(m)
         target = norm(dep_time_hhmm)
         best = min(trips, key=lambda e: abs(norm(e["t"]) - target))
-    return [{"id": s[0], "name": s[1], "lat": s[2], "lon": s[3]} for s in best["s"]]
+    def _norm_hhmm(t: str) -> str:
+        """Normalise GTFS time (may exceed 24:00) to display HH:MM within 00-23."""
+        if not t or ":" not in t:
+            return t
+        h, m = t.split(":")[:2]
+        return f"{int(h) % 24:02d}:{m}"
+
+    return [{"id": s[0], "name": s[1], "lat": s[2], "lon": s[3], "departure_time": _norm_hhmm(s[4] if len(s) > 4 else "")} for s in best["s"]]
 
 
 # ---------------------------------------------------------------------------
@@ -444,11 +453,13 @@ def get_direct_connections(
         if not stops or len(stops) < 2:
             continue
 
-        # Stamp departure time on first stop and arrival time on last stop
-        # so the sidebar can show scheduled times next to each city name.
-        arr_time = trip.get("arrival_time", "")
-        stops[0]["departure_time"] = dep_time
-        stops[-1]["arrival_time"]  = arr_time
+        # For city-level fallback stops (no GTFS data), stamp dep/arr times on
+        # first and last stop so the sidebar can show scheduled times.
+        # GTFS-resolved stops already carry per-stop departure_time from the file.
+        if not stops[0].get("departure_time"):
+            stops[0]["departure_time"] = dep_time
+        if not stops[-1].get("departure_time"):
+            stops[-1]["departure_time"] = trip.get("arrival_time", "")
 
         # Deduplicate identical stop sequences
         path_key = tuple(s["id"] for s in stops)

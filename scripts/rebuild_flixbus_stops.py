@@ -94,7 +94,11 @@ def main():
             dep_hhmm = seq[i][2][:5]
             for j in range(i + 1, n):
                 arr_sid = seq[j][1]
-                stop_slice = [stops[seq[k][1]] for k in range(i, j + 1)]
+                # Each stop entry: [id, name, lat, lon, "HH:MM"] — time from stop_times.txt
+                stop_slice = [
+                    stops[seq[k][1]] + [seq[k][2][:5]]
+                    for k in range(i, j + 1)
+                ]
                 # Deduplicate by full stop-sequence fingerprint
                 key = dep_hhmm + "|" + "|".join(s[0] for s in stop_slice)
                 if key not in lookup[dep_sid][arr_sid]:

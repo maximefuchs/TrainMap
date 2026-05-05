@@ -251,7 +251,7 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
             <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
             <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
-          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.departure_time ? `<span class="stop-time">${s.departure_time}</span>` : (s.arrival_time ? `<span class="stop-time">${s.arrival_time}</span>` : "")}</div>
+          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.departure_time ? `<span class="stop-time">${s.departure_time}</span>` : ""}</div>
           ${isOrigin ? "" : `
             <button class="stop-btn-explore" title="${t("exploreFrom")}"
                     data-id="${s.id}" data-name="${s.name}"
