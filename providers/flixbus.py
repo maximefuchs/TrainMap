@@ -18,6 +18,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import threading
@@ -94,7 +95,7 @@ def _init_gtfs() -> None:
     try:
         tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         with gzip.open(_GTFS_PATH, "rb") as f_in:
-            tmp.write(f_in.read())
+            shutil.copyfileobj(f_in, tmp, length=1024 * 1024)
         tmp.flush()
         tmp.close()
         _gtfs_tmp_file = tmp
