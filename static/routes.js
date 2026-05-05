@@ -104,12 +104,14 @@ function stationPopupHtml(s) {
 }
 
 function busPopupHtml(conn) {
-  const line = conn.lines && conn.lines[0];
-  const times = line
-    ? `<br><span style="opacity:.7;font-size:.85em">${line.departure_time} → ${line.arrival_time}</span>`
-    : "";
+  const lines = conn.lines || [];
+  const timesHtml = lines.slice(0, 5).map(l =>
+    `<div style="font-size:.82em;opacity:.75">${l.departure_time} → ${l.arrival_time}</div>`
+  ).join("");
+  const more = lines.length > 5
+    ? `<div style="font-size:.78em;opacity:.5">+${lines.length - 5} more</div>` : "";
   return `<div class="popup-station">
-    <strong>${conn.name}</strong>${times}
+    <strong>${conn.name}</strong>${timesHtml}${more}
     <button class="popup-btn-explore" title="${t("exploreFrom")}"
             data-id="${conn.id}" data-name="${conn.name}"
             data-lat="${conn.lat}" data-lon="${conn.lon}">${EXPLORE_ICON}</button>
@@ -154,17 +156,18 @@ connList.addEventListener("click", (e) => {
 // ── Render connections ────────────────────────────────────────────────────────
 
 // Called once the SSE stream has delivered all route paths for a search.
-// `paths` is the train route_paths array (empty in bus mode).
-// `conns` is the raw connections array (used in bus mode).
+// `paths` is the route_paths array (non-empty when routes could be reconstructed).
+// `conns` is the raw connections array (fallback when paths is empty).
 // `mode` is "train" or "bus".
 function renderConnections(origin, paths, conns = [], mode = "train") {
-  if (mode === "bus") {
-    _renderBusConnections(origin, conns);
-    return;
-  }
-
+  // If we have route paths (train always, bus when grouping succeeded), draw polylines.
+  // Fall back to dot-only rendering only when paths is truly empty.
   if (!paths.length) {
-    connList.innerHTML = `<div id="empty-state"><p>${t("noConnections")}</p></div>`;
+    if (conns.length) {
+      _renderBusConnections(origin, conns);
+    } else {
+      connList.innerHTML = `<div id="empty-state"><p>${t("noConnections")}</p></div>`;
+    }
     return;
   }
 
@@ -243,7 +246,7 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
             <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
             <div class="stop-track-line" style="background:${lineBelow}"></div>
           </div>
-          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}</div>
+          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.arrival_time ? `<span class="stop-time">${s.arrival_time}</span>` : ""}</div>
           ${isOrigin ? "" : `
             <button class="stop-btn-explore" title="${t("exploreFrom")}"
                     data-id="${s.id}" data-name="${s.name}"
@@ -292,24 +295,41 @@ function _renderBusConnections(origin, conns) {
     return m;
   });
 
-  // Sidebar: simple list items (no accordion, no stop timeline)
+  // Sidebar: one accordion per city, with all departure times listed inside
   connList.innerHTML = conns.map((conn, idx) => {
-    const line = conn.lines && conn.lines[0];
-    const times = line
-      ? `<span class="bus-times">${line.departure_time} → ${line.arrival_time}</span>`
+    const lines = conn.lines || [];
+    const firstLine = lines[0];
+    // Summary shows city name + first departure time
+    const summaryTime = firstLine
+      ? `<span class="bus-times">${firstLine.departure_time} → ${firstLine.arrival_time}</span>`
       : "";
+    // Body lists every trip
+    const tripsHtml = lines.map(l =>
+      `<div class="bus-trip-row">
+        <span class="bus-trip-time">${l.departure_time}</span>
+        <span class="bus-trip-arrow">→</span>
+        <span class="bus-trip-time">${l.arrival_time}</span>
+      </div>`
+    ).join("");
+
     return `
-      <div class="bus-conn-row" data-conn-idx="${idx}"
-           onclick="_activateBusConn(${idx})">
-        <div class="bus-dot-swatch"></div>
-        <div class="bus-conn-info">
-          <span class="bus-conn-name">${conn.name}</span>
-          ${times}
-        </div>
-        <button class="stop-btn-explore" title="${t("exploreFrom")}"
-                data-id="${conn.id}" data-name="${conn.name}"
-                data-lat="${conn.lat}" data-lon="${conn.lon}">${EXPLORE_ICON}</button>
-      </div>`;
+      <details class="bus-conn-details" id="bus-conn-${idx}">
+        <summary class="bus-conn-row" data-conn-idx="${idx}"
+                 onclick="_activateBusConn(${idx})">
+          <div class="bus-dot-swatch"></div>
+          <div class="bus-conn-info">
+            <span class="bus-conn-name">${conn.name}</span>
+            ${summaryTime}
+          </div>
+          <button class="stop-btn-explore" title="${t("exploreFrom")}"
+                  data-id="${conn.id}" data-name="${conn.name}"
+                  data-lat="${conn.lat}" data-lon="${conn.lon}"
+                  onclick="event.stopPropagation()">${EXPLORE_ICON}</button>
+          ${lines.length > 1 ? `<span class="bus-trip-count">${lines.length}×</span>` : ""}
+          <span class="route-chevron">▶</span>
+        </summary>
+        ${lines.length > 1 ? `<div class="bus-trips-body">${tripsHtml}</div>` : ""}
+      </details>`;
   }).join("");
 
   // Fit map to include origin + all destinations
@@ -326,10 +346,10 @@ function _renderBusConnections(origin, conns) {
 function _activateBusConn(idx) {
   // Un-highlight previous
   connList.querySelectorAll(".bus-conn-row.active").forEach(r => r.classList.remove("active"));
-  const row = connList.querySelector(`[data-conn-idx="${idx}"]`);
-  if (row) {
-    row.classList.add("active");
-    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  const summary = connList.querySelector(`.bus-conn-row[data-conn-idx="${idx}"]`);
+  if (summary) {
+    summary.classList.add("active");
+    summary.closest("details")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   const m = busMarkers[idx];
   if (m) {

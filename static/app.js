@@ -289,10 +289,21 @@ async function selectStation(station) {
     const conns = data.connections  || [];
     const paths = data.route_paths  || [];
 
+    // The backend resolves origin coords from the city cache. For bus mode the
+    // cache is built without a country filter and may miss some cities. Patch
+    // the first stop of every route path with the known coords from the
+    // autocomplete selection so the polyline always starts at the right place.
+    paths.forEach(path => {
+      if (path.stops && path.stops.length > 0) {
+        path.stops[0].lat  = station.lat;
+        path.stops[0].lon  = station.lon;
+        path.stops[0].name = path.stops[0].name || station.name;
+      }
+    });
+
     showStatus(t("connectionsFound", conns.length), "ok");
 
-    // For bus mode, route_paths is empty; show connection count from conns
-    const displayCount = paths.length || conns.length;
+    const displayCount    = paths.length || conns.length;
     const routeLabel      = t("routeCount", displayCount);
     connCount.textContent = routeLabel;
     fabCount.textContent  = displayCount;

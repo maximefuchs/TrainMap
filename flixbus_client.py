@@ -7,13 +7,16 @@ Key characteristics:
   - Works at CITY level (not station level) — FlixBus searches are city-to-city.
   - No "all destinations from X" endpoint exists without auth, so we enumerate
     all cities for the country then query each as a destination in parallel.
-  - Intermediate stops require auth (/rides/{id}/stops → 403), so we return
-    empty route_paths. The frontend renders destination cities as dots only.
+  - Intermediate stops are resolved from a bundled GTFS-derived lookup file
+    (flixbus_stops.json). The lookup maps (dep_station_id, arr_station_id,
+    dep_time_hhmm) -> ordered list of stops with coordinates.
   - Results are cached in memory per session to avoid redundant API calls.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_type, datetime
@@ -36,8 +39,10 @@ SEARCH_URL = (
     "&search_by=cities&products=%7B%22adult%22%3A1%7D"
 )
 
-# Characters to query for city enumeration — a–z covers virtually all city names
-_ENUM_QUERIES = list("abcdefghijklmnopqrstuvwxyz")
+# Single-letter queries (a–z) for city enumeration — covers all major FlixBus
+# cities (~200+) across Europe with a ~2 s cold-start build time.
+_ALPHA = "abcdefghijklmnopqrstuvwxyz"
+_ENUM_QUERIES = list(_ALPHA)
 
 # In-memory city cache per country: {country_code: {city_id: city_dict}}
 _city_cache: dict[str, dict[str, dict]] = {}
@@ -52,6 +57,51 @@ COUNTRY_CODES = {
 
 # Timeout for individual HTTP requests (seconds)
 _TIMEOUT = 10
+
+# ---------------------------------------------------------------------------
+# GTFS stop lookup
+# ---------------------------------------------------------------------------
+# flixbus_stops.json is generated from the FlixBus GTFS feed (MobilityData
+# catalog entry de-unknown-flixbus-gtfs-853). It maps:
+#   dep_station_id -> arr_station_id -> list of {t: "HH:MM", s: [[id, name, lat, lon], ...]}
+# where the list of stops is the full ordered sequence (including dep and arr).
+# The file is loaded once at module import time (~6 MB, instant).
+
+_GTFS_PATH = os.path.join(os.path.dirname(__file__), "flixbus_stops.json")
+
+def _load_gtfs_stops() -> dict:
+    try:
+        with open(_GTFS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+_gtfs_stops: dict = _load_gtfs_stops()
+
+
+def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) -> list[dict] | None:
+    """
+    Return the ordered stop list for a given leg, or None if not found in GTFS.
+
+    dep_time_hhmm should be "HH:MM" (first 5 chars of the ISO departure time).
+    Each stop: {"id", "name", "lat", "lon"}.
+
+    If only one trip exists for this (dep, arr) pair, it is returned regardless
+    of departure time (schedules shift between GTFS snapshots and live API).
+    If multiple trips exist, the one with the closest departure time is used.
+    """
+    trips = _gtfs_stops.get(dep_station_id, {}).get(arr_station_id, [])
+    if not trips:
+        return None
+    if len(trips) == 1:
+        best = trips[0]
+    else:
+        def norm(t: str) -> int:
+            h, m = t.split(":")
+            return (int(h) % 24) * 60 + int(m)
+        target = norm(dep_time_hhmm)
+        best = min(trips, key=lambda e: abs(norm(e["t"]) - target))
+    return [{"id": s[0], "name": s[1], "lat": s[2], "lon": s[3]} for s in best["s"]]
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +222,18 @@ def _check_connection(
     from_id: str,
     to_city: dict,
     date_str: str,
-) -> Optional[dict]:
+) -> Optional[list]:
     """
     Query the FlixBus search API for a single from→to pair.
 
-    Returns a connection dict if at least one direct trip is found, else None.
+    Returns a list of trip dicts for every direct trip found (not just the first),
+    so multiple buses departing at different times are all captured.
+    Each item: {
+      "city", "departure_time", "arrival_time", "dep_iso", "arr_iso",
+      "legs",              # raw legs list (city_id level)
+      "dep_station_id",   # station_id of the first leg's departure
+      "arr_station_id",   # station_id of the last leg's arrival
+    }
     """
     to_id = to_city["id"]
     if to_id == from_id:
@@ -207,27 +264,30 @@ def _check_connection(
         return None
 
     results = trips[0].get("results", {})
-    # Look for a direct trip
+    found = []
     for uid, r in results.items():
-        if r.get("transfer_type_key") == "direct":
-            # Grab the earliest departure time for display
-            dep_time = ""
-            arr_time = ""
-            legs = r.get("legs", [])
-            if legs:
-                dep_dt = legs[0].get("departure", {}).get("date", "")
-                arr_dt = legs[-1].get("arrival", {}).get("date", "")
-                # ISO-8601 → HH:MM
-                if dep_dt:
-                    dep_time = dep_dt[11:16] if len(dep_dt) >= 16 else dep_dt
-                if arr_dt:
-                    arr_time = arr_dt[11:16] if len(arr_dt) >= 16 else arr_dt
-            return {
-                "city": to_city,
-                "departure_time": dep_time,
-                "arrival_time":   arr_time,
-            }
-    return None
+        if r.get("transfer_type_key") != "direct":
+            continue
+        legs = r.get("legs", [])
+        if not legs:
+            continue
+        dep_iso = legs[0].get("departure", {}).get("date", "")
+        arr_iso = legs[-1].get("arrival", {}).get("date", "")
+        dep_time = dep_iso[11:16] if len(dep_iso) >= 16 else dep_iso
+        arr_time = arr_iso[11:16] if len(arr_iso) >= 16 else arr_iso
+        dep_station_id = legs[0].get("departure", {}).get("station_id", "")
+        arr_station_id = legs[-1].get("arrival", {}).get("station_id", "")
+        found.append({
+            "city":           to_city,
+            "departure_time": dep_time,
+            "arrival_time":   arr_time,
+            "dep_iso":        dep_iso,
+            "arr_iso":        arr_iso,
+            "legs":           legs,
+            "dep_station_id": dep_station_id,
+            "arr_station_id": arr_station_id,
+        })
+    return found if found else None
 
 
 def get_direct_connections(
@@ -239,24 +299,32 @@ def get_direct_connections(
     """
     Return all cities directly reachable by FlixBus from *city_id* on *date*.
 
-    Return format (same shape as navitia_client / trenitalia_client):
+    Each connection includes all direct trips (departure/arrival times) for that
+    city on the given date.
+
+    Route paths are built from the legs[] returned by the search API.
+    Each leg carries the departure and arrival city_id; we resolve coordinates
+    from the city cache. This gives polyline data for bus routes at city level
+    (no intra-city intermediate stops — those require auth).
+
+    Return format:
       {
         "connections": [
           {
-            "id":    city_id,
-            "name":  city_name,
-            "lat":   float,
-            "lon":   float,
-            "lines": [{"code": "FlixBus", "departure_time": "HH:MM",
-                       "arrival_time": "HH:MM"}],
-          },
-          ...
+            "id": city_id, "name": city_name, "lat": float, "lon": float,
+            "lines": [
+              {"code": "FlixBus", "departure_time": "HH:MM", "arrival_time": "HH:MM"},
+              ...  # one entry per direct trip on that day
+            ],
+          }, ...
         ],
-        "route_paths": [],   # empty — intermediate stops require auth
+        "route_paths": [
+          {
+            "line_code": "FlixBus HH:MM",
+            "stops": [{"id", "name", "lat", "lon"}, ...],
+          }, ...
+        ],
       }
-
-    *progress_callback(current, total, message)* is called once per destination
-    checked so the SSE stream can update the progress bar.
     """
     date_str = _date_param(date)
 
@@ -265,7 +333,11 @@ def get_direct_connections(
     destinations = [c for cid, c in all_cities.items() if cid != city_id]
     total = len(destinations)
 
-    connections = []
+    # city_id → list of trip dicts (deduped)
+    city_trips: dict[str, list[dict]] = {}
+    city_meta:  dict[str, dict] = {}
+    # dep_iso → trip dict (first seen, for route path building)
+    trips_by_dep: dict[str, dict] = {}
     done = 0
 
     with ThreadPoolExecutor(max_workers=10) as ex:
@@ -275,27 +347,102 @@ def get_direct_connections(
         }
         for fut in as_completed(futs):
             done += 1
+            city = futs[fut]
             if progress_callback:
-                progress_callback(done, total, futs[fut]["name"])
+                progress_callback(done, total, city["name"])
 
             result = fut.result()
             if result is None:
                 continue
 
-            city = result["city"]
-            connections.append({
-                "id":   city["id"],
-                "name": city["name"],
-                "lat":  city["lat"],
-                "lon":  city["lon"],
-                "lines": [{
+            cid = city["id"]
+            city_meta[cid] = city
+            seen = set()
+            for trip in result:
+                key = (trip["dep_iso"], trip["arr_iso"])
+                if key not in seen:
+                    seen.add(key)
+                    city_trips.setdefault(cid, []).append(trip)
+                # Store trip keyed by dep_iso for route_path building (first seen wins)
+                dep_iso = trip["dep_iso"]
+                if dep_iso not in trips_by_dep:
+                    trips_by_dep[dep_iso] = trip
+
+    # 2. Build connections list
+    connections = []
+    for cid, trips in city_trips.items():
+        city = city_meta[cid]
+        trips_sorted = sorted(trips, key=lambda t: t["dep_iso"])
+        connections.append({
+            "id":   city["id"],
+            "name": city["name"],
+            "lat":  city["lat"],
+            "lon":  city["lon"],
+            "lines": [
+                {
                     "code":           "FlixBus",
-                    "departure_time": result["departure_time"],
-                    "arrival_time":   result["arrival_time"],
-                }],
-            })
+                    "departure_time": t["departure_time"],
+                    "arrival_time":   t["arrival_time"],
+                }
+                for t in trips_sorted
+            ],
+        })
+
+    # 3. Build route_paths.
+    #    Priority: GTFS lookup (full intermediate stops) → city-level legs fallback.
+    #    Key: (dep_station_id, arr_station_id, dep_time_hhmm) for GTFS match.
+    route_paths = []
+    seen_paths: set[tuple] = set()
+    origin_city = all_cities.get(city_id)
+
+    for dep_iso, trip in sorted(trips_by_dep.items()):
+        legs = trip.get("legs", [])
+        if not legs:
+            continue
+
+        dep_time = dep_iso[11:16] if len(dep_iso) >= 16 else dep_iso
+        dep_station_id = trip.get("dep_station_id", "")
+        arr_station_id = trip.get("arr_station_id", "")
+
+        # Try GTFS first — gives full intermediate bus stops with coords
+        stops = None
+        if dep_station_id and arr_station_id:
+            stops = _lookup_stops(dep_station_id, arr_station_id, dep_time)
+
+        # Fallback: city-level stops from legs[] (only major cities, no intermediate)
+        if not stops:
+            stop_city_ids: list[str] = [legs[0]["departure"]["city_id"]]
+            for leg in legs:
+                cid_arr = leg["arrival"]["city_id"]
+                if cid_arr != stop_city_ids[-1]:
+                    stop_city_ids.append(cid_arr)
+
+            stops = []
+            for cid in stop_city_ids:
+                if cid == city_id and origin_city:
+                    stops.append({
+                        "id": city_id, "name": origin_city["name"],
+                        "lat": origin_city["lat"], "lon": origin_city["lon"],
+                    })
+                elif cid in all_cities:
+                    c = all_cities[cid]
+                    stops.append({"id": cid, "name": c["name"], "lat": c["lat"], "lon": c["lon"]})
+
+        if not stops or len(stops) < 2:
+            continue
+
+        # Deduplicate identical stop sequences
+        path_key = tuple(s["id"] for s in stops)
+        if path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+
+        route_paths.append({
+            "line_code": f"FlixBus {dep_time}",
+            "stops": stops,
+        })
 
     return {
         "connections": connections,
-        "route_paths": [],   # no polylines — dots only on the map
+        "route_paths": route_paths,
     }

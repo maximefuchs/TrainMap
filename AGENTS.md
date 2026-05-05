@@ -35,8 +35,9 @@ routes/destinations.
   stations missing from the CSV are fetched live and cached in memory.
 - `flixbus_client.py` wraps the FlixBus public search API. No token needed.
   Works at **city** level (not station level). Enumerates all cities for the country
-  by querying autocomplete a–z, then checks each as a destination in parallel
-  (`ThreadPoolExecutor(max_workers=10)`). Results are cached in memory per country.
+  by querying autocomplete a–z (26 single-letter queries), then checks each as a
+  destination in parallel (`ThreadPoolExecutor(max_workers=10)`). Results are cached
+  in memory per session (~200 major cities, ~2 s cold start).
 - All API endpoints accept `?country=fr|it` and `?mode=train|bus`.
 - Frontend persists `selectedCountry` and `selectedMode` in `localStorage`.
   Switching either clears the map and resets the UI.
@@ -46,8 +47,13 @@ routes/destinations.
 - City autocomplete: `search/autocomplete/cities?q=<q>&lang=en&country=<cc>&flixbus_cities_only=true`
 - Route search: `search/service/v4/search?from_city_id=<id>&to_city_id=<id>&departure_date=<DD.MM.YYYY>&...`
 - Intermediate stops endpoint (`/search/service/v4/rides/<id>/stops`) requires auth (403) —
-  **not used**. Bus mode draws dots only (no polylines).
-- `route_paths` is always `[]` for bus mode; frontend detects this and uses `conns` array.
+  **not used**. Bus mode builds `route_paths` from `legs[]` in the search response.
+- `route_paths` for bus mode is built from legs city IDs resolved via the city cache.
+  Each leg's `departure.city_id` and `arrival.city_id` are looked up in the cache to
+  get coordinates. **Intermediate stops** are resolved from the bundled `flixbus_stops.json`
+  GTFS lookup: `(dep_station_id, arr_station_id)` → ordered stop list with coordinates.
+  Falls back to city-level leg endpoints when GTFS has no entry for the pair.
+  The frontend draws polylines when `route_paths` is non-empty (same rendering path as trains).
 - City city cache is populated once per country per server session (a–z queries, ~2 s).
 - `flixbus_client.httpx.get` must be mocked in tests (not `httpx.get` directly).
 
@@ -86,9 +92,9 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
 - **SSE streaming:** the `/api/connections/stream` endpoint emits `progress`
   events (one per route/train) and a final `done` event with the full payload.
   The frontend never polls; it just listens.
-- **Bus mode → dots only:** `route_paths` is `[]`; `renderConnections()` detects
-  `mode === "bus"` and calls `_renderBusConnections()` instead of drawing polylines.
-  Sidebar shows a flat list of city rows (not accordions).
+- **Bus mode uses polylines when route_paths available:** `renderConnections()` draws
+  polylines for bus routes just like trains when `route_paths` is non-empty. Falls back
+  to `_renderBusConnections()` (dot markers) only when `route_paths` is empty.
 - **Hit polylines (train only):** each route has two overlapping polylines — a thin
   visible one (weight 3) and a transparent fat one (weight 20) used purely as a
   touch/click target. Do not remove the hit polyline.
@@ -130,10 +136,11 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
   `"Mon May 04 2026 10:00:00 GMT+0100"` string, URL-encoded.
 - `trenitalia_stations.csv` is from a 2015 dump; newer stations (e.g. Napoli Afragola)
   are missing and fetched live. Stations with `N/A` coordinates are skipped.
-- FlixBus intermediate stops require auth — `/rides/<id>/stops` returns 403.
-  Bus mode therefore only draws city dots, no polylines.
-- FlixBus city cache is built once per country per server session. Cold start
-  adds ~2 s on first bus search.
+- FlixBus intermediate stops endpoint (`/search/service/v4/rides/<id>/stops`) requires auth (403) —
+  **not used**. Bus route paths are reconstructed from the `legs[]` array in the search
+  response. Each leg's `departure.city_id` and `arrival.city_id` are resolved to
+  coordinates via the city cache. Only city-level stops are available (no bus stops within cities).
+- FlixBus city cache is built once per server session via a–z (26) single-letter queries (no country filter). Cold start adds ~2 s on first bus search.
 - Render free tier spins down after inactivity (~30 s cold start).
 - OSM tile servers have a usage policy — do not change `maxZoom` above 19 or
   remove the attribution.
