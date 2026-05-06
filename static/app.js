@@ -292,12 +292,20 @@ async function selectStation(station) {
     // The backend resolves origin coords from the city cache. For bus mode the
     // cache is built without a country filter and may miss some cities. Patch
     // the first stop of every route path with the known coords from the
-    // autocomplete selection so the polyline always starts at the right place.
+    // autocomplete selection — but only when the first stop's id matches the
+    // searched station/city (i.e. it is genuinely the origin placeholder) or
+    // when the coords are missing. GTFS-resolved first stops have their own
+    // precise coords and should not be overwritten.
     paths.forEach(path => {
       if (path.stops && path.stops.length > 0) {
-        path.stops[0].lat  = station.lat;
-        path.stops[0].lon  = station.lon;
-        path.stops[0].name = path.stops[0].name || station.name;
+        const first = path.stops[0];
+        const missingCoords = !first.lat && !first.lon;
+        const isOrigin = first.id === station.id;
+        if (missingCoords || isOrigin) {
+          first.lat  = station.lat;
+          first.lon  = station.lon;
+          first.name = first.name || station.name;
+        }
       }
     });
 
