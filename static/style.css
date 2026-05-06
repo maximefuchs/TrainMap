@@ -314,6 +314,7 @@ details[open] .route-chevron { transform: rotate(90deg); }
 .stop-row:hover .stop-btn-explore { opacity: 1; }
 .stop-row:hover { background: #0f172a; }
 .stop-row.active { background: #0c4a6e; }
+.stop-row.hovered { background: #0f172a; }
 
 /* Vertical track column */
 .stop-track {

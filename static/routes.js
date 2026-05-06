@@ -195,7 +195,9 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
     const hitPoly = L.polyline(latlngs, {
       color, weight: 20, opacity: 0, interactive: true,
     }).addTo(map);
-    hitPoly.bindTooltip(path.line_code || t("trainFallback"), {
+    const firstName = path.stops[0]?.name || "";
+    const lastName  = path.stops[path.stops.length - 1]?.name || "";
+    hitPoly.bindTooltip(`${firstName} → ${lastName}`, {
       sticky: true, className: "route-tooltip",
     });
     hitPoly.on("click", () => selectRoute(idx));
@@ -234,6 +236,25 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
         m._station = s;
 
         m.bindPopup(stationPopupHtml(s));
+        m.bindTooltip(s.name, { className: "route-tooltip" });
+
+        let hoveredStopRow = null;
+        m.on("mouseover", () => {
+          const row = connList.querySelector(
+            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
+          );
+          if (row) {
+            row.classList.add("hovered");
+            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            hoveredStopRow = row;
+          }
+        });
+        m.on("mouseout", () => {
+          if (hoveredStopRow) {
+            hoveredStopRow.classList.remove("hovered");
+            hoveredStopRow = null;
+          }
+        });
 
         m.on("click", () => {
           if (activeStopRow) activeStopRow.classList.remove("active");
