@@ -173,6 +173,7 @@ header h1 span { color: #38bdf8; }
 }
 .ac-item:hover { background: #0ea5e9; color: #fff; }
 .ac-item:last-child { border-bottom: none; }
+.ac-flag { margin-right: 6px; font-style: normal; }
 
 .ac-loading {
   display: flex;
@@ -201,15 +202,12 @@ header h1 span { color: #38bdf8; }
 #status.loading { color: #facc15; }
 #status.ok { color: #4ade80; }
 
-/* ── Country & Language dropdowns ───────────────────────── */
-#country-toggle,
+/* ── Language dropdown ───────────────────────────────────── */
 #lang-toggle {
   flex-shrink: 0;
-}
-#lang-toggle {
   margin-left: auto;
 }
-#country-select, #lang-select {
+#lang-select {
   padding: 5px 10px;
   border-radius: 6px;
   border: 1px solid #475569;
@@ -221,8 +219,20 @@ header h1 span { color: #38bdf8; }
   outline: none;
   transition: border-color 0.15s;
 }
-#country-select:hover, #country-select:focus,
 #lang-select:hover, #lang-select:focus { border-color: #38bdf8; }
+
+/* ── Data coverage notice ────────────────────────────────── */
+#data-coverage {
+  position: fixed;
+  bottom: 28px;
+  right: 8px;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  opacity: 0.75;
+  pointer-events: none;
+  z-index: 800;
+  line-height: 1.4;
+}
 
 /* ── Progress bar ────────────────────────────────────────── */
 #progress-bar-wrap {
@@ -512,7 +522,6 @@ path.leaflet-interactive:focus { outline: none; }
   }
   header h1   { flex: 1; }
   #lang-toggle { margin-left: 0; }  /* lang stays on row 1 after title */
-  #country-toggle { margin-left: 0; }
 
   .search-wrap {
     order: 2;

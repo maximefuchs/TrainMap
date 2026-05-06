@@ -25,13 +25,6 @@
 <header>
   <h1>🚄 <span>Train</span>Map</h1>
 
-  <div id="country-toggle">
-    <select id="country-select" aria-label="Country">
-      <option value="fr">🇫🇷 France</option>
-      <option value="it">🇮🇹 Italy</option>
-    </select>
-  </div>
-
   <div id="mode-toggle">
     <button id="mode-train" class="mode-btn active" aria-pressed="true">Train</button>
     <button id="mode-bus"   class="mode-btn"        aria-pressed="false">Bus</button>
@@ -118,5 +111,7 @@
   <script src="/static/autocomplete.js"></script>
   <script src="/static/routes.js"></script>
   <script src="/static/app.js"></script>
+
+<div id="data-coverage"></div>
 </body>
 </html>
