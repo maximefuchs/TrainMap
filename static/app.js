@@ -181,9 +181,43 @@ function updateSearchBtn() {
   searchBtn.disabled = !(selectedStation && dateInput.value);
 }
 
+function _setSearchLoading(loading) {
+  searchBtn.classList.toggle("loading", loading);
+  searchBtn.classList.remove("confirm");
+  searchBtn.disabled = false;
+  searchBtn.setAttribute("aria-label", loading ? "Stop" : "Search");
+  if (!loading) updateSearchBtn();
+}
+
+function _stopSearch() {
+  cancelActiveStream();
+  _setSearchLoading(false);
+  showStatus(t("statusDefault"), "");
+  hideProgress();
+}
+
 searchBtn.addEventListener("click", () => {
-  if (selectedStation && dateInput.value) selectStation(selectedStation);
+  if (!searchBtn.classList.contains("loading")) {
+    if (selectedStation && dateInput.value) selectStation(selectedStation);
+    return;
+  }
+
+  // On touch devices (no hover): first tap enters confirm state, second tap stops
+  const isTouch = !window.matchMedia("(hover: hover)").matches;
+  if (isTouch && !searchBtn.classList.contains("confirm")) {
+    searchBtn.classList.add("confirm");
+    return;
+  }
+
+  _stopSearch();
 });
+
+// On touch: reset confirm state if the user taps anywhere else
+document.addEventListener("touchstart", (e) => {
+  if (!searchBtn.contains(e.target)) {
+    searchBtn.classList.remove("confirm");
+  }
+}, { passive: true });
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
@@ -273,6 +307,7 @@ async function selectStation(station) {
 
   const es = new EventSource(url);
   activeStream = es;
+  _setSearchLoading(true);
 
   es.addEventListener("progress", (e) => {
     const { current, total } = JSON.parse(e.data);
@@ -283,6 +318,8 @@ async function selectStation(station) {
   es.addEventListener("done", (e) => {
     es.close();
     activeStream = null;
+    _setSearchLoading(false);
+    updateSearchBtn();
     hideProgress();
 
     const data  = JSON.parse(e.data);
@@ -292,12 +329,20 @@ async function selectStation(station) {
     // The backend resolves origin coords from the city cache. For bus mode the
     // cache is built without a country filter and may miss some cities. Patch
     // the first stop of every route path with the known coords from the
-    // autocomplete selection so the polyline always starts at the right place.
+    // autocomplete selection — but only when the first stop's id matches the
+    // searched station/city (i.e. it is genuinely the origin placeholder) or
+    // when the coords are missing. GTFS-resolved first stops have their own
+    // precise coords and should not be overwritten.
     paths.forEach(path => {
       if (path.stops && path.stops.length > 0) {
-        path.stops[0].lat  = station.lat;
-        path.stops[0].lon  = station.lon;
-        path.stops[0].name = path.stops[0].name || station.name;
+        const first = path.stops[0];
+        const missingCoords = !first.lat && !first.lon;
+        const isOrigin = first.id === station.id;
+        if (missingCoords || isOrigin) {
+          first.lat  = station.lat;
+          first.lon  = station.lon;
+          first.name = first.name || station.name;
+        }
       }
     });
 
@@ -316,6 +361,8 @@ async function selectStation(station) {
   es.addEventListener("error", (e) => {
     es.close();
     activeStream = null;
+    _setSearchLoading(false);
+    updateSearchBtn();
     hideProgress();
     if (e.data) {
       const { detail } = JSON.parse(e.data);

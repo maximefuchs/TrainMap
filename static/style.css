@@ -103,6 +103,38 @@ header h1 span { color: #38bdf8; }
   opacity: 0.35;
   cursor: not-allowed;
 }
+#search-btn .icon-stop   { display: none; }
+#search-btn .icon-search { display: block; }
+#search-btn .icon-spinner { display: none; }
+
+/* Loading state: show spinner by default */
+#search-btn.loading { background: #0ea5e9; cursor: default; }
+#search-btn.loading .icon-search  { display: none; }
+#search-btn.loading .icon-spinner { display: block; }
+#search-btn.loading .icon-stop    { display: none; }
+
+/* On desktop: hovering while loading reveals the stop icon instead of spinner */
+@media (hover: hover) {
+  #search-btn.loading:hover { background: #ef4444; cursor: pointer; }
+  #search-btn.loading:hover .icon-spinner { display: none; }
+  #search-btn.loading:hover .icon-stop    { display: block; }
+}
+
+/* On touch: a second tap (confirmed state) reveals the stop icon */
+#search-btn.loading.confirm { background: #ef4444; cursor: pointer; }
+#search-btn.loading.confirm .icon-spinner { display: none; }
+#search-btn.loading.confirm .icon-stop    { display: block; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.icon-spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
 
 #station-input {
   width: 100%;
@@ -259,6 +291,7 @@ main {
 }
 .route-summary::-webkit-details-marker { display: none; }
 .route-summary:hover { background: #0f172a; }
+.route-summary.hovered { background: #0f172a; }
 
 .route-swatch {
   width: 12px;
@@ -313,6 +346,7 @@ details[open] .route-chevron { transform: rotate(90deg); }
 .stop-row:hover .stop-btn-explore { opacity: 1; }
 .stop-row:hover { background: #0f172a; }
 .stop-row.active { background: #0c4a6e; }
+.stop-row.hovered { background: #0f172a; }
 
 /* Vertical track column */
 .stop-track {

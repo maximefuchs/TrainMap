@@ -61,6 +61,20 @@ function circleIcon(color) {
   });
 }
 
+function circleIconHovered(color) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width:14px; height:14px; border-radius:50%;
+      background:${color}; border:2px solid ${color};
+      box-shadow:0 0 10px ${color}cc;
+      outline: 2px solid #fff;
+    "></div>`,
+    iconSize:   [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
 // Bus destination dot — slightly larger, distinct green colour
 function busDestIcon() {
   return L.divIcon({
@@ -72,6 +86,20 @@ function busDestIcon() {
     "></div>`,
     iconSize:   [12, 12],
     iconAnchor: [6, 6],
+  });
+}
+
+// Enlarged version for sidebar hover
+function busDestIconHover() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width:18px; height:18px; border-radius:50%;
+      background:#22c55e; border:2px solid #fff;
+      box-shadow:0 0 10px #22c55ecc;
+    "></div>`,
+    iconSize:   [18, 18],
+    iconAnchor: [9, 9],
   });
 }
 
@@ -181,10 +209,41 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
     const hitPoly = L.polyline(latlngs, {
       color, weight: 20, opacity: 0, interactive: true,
     }).addTo(map);
-    hitPoly.bindTooltip(path.line_code || t("trainFallback"), {
+    const firstName = path.stops[0]?.name || "";
+    const lastName  = path.stops[path.stops.length - 1]?.name || "";
+    hitPoly.bindTooltip(`${firstName} → ${lastName}`, {
       sticky: true, className: "route-tooltip",
     });
     hitPoly.on("click", () => selectRoute(idx));
+    hitPoly.on("mouseover", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        r.poly.setStyle({ weight: 4, opacity: 0.85 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 5, opacity: 1 });
+      }
+      // Only show tooltip when this route is not the focused one
+      if (activeRouteIdx === idx) {
+        hitPoly.closeTooltip();
+      }
+      const det = document.getElementById(`route-${idx}`);
+      if (det) {
+        det.querySelector(".route-summary")?.classList.add("hovered");
+        det.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    });
+    hitPoly.on("mouseout", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        r.poly.setStyle({ weight: 2, opacity: 0.2 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 3, opacity: 0.75 });
+      }
+      const det = document.getElementById(`route-${idx}`);
+      if (det) det.querySelector(".route-summary")?.classList.remove("hovered");
+    });
 
     const markers = path.stops
       .filter(s => s.id !== origin.id)
@@ -195,6 +254,25 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
         m._station = s;
 
         m.bindPopup(stationPopupHtml(s));
+        m.bindTooltip(s.name, { className: "route-tooltip" });
+
+        let hoveredStopRow = null;
+        m.on("mouseover", () => {
+          const row = connList.querySelector(
+            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
+          );
+          if (row) {
+            row.classList.add("hovered");
+            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            hoveredStopRow = row;
+          }
+        });
+        m.on("mouseout", () => {
+          if (hoveredStopRow) {
+            hoveredStopRow.classList.remove("hovered");
+            hoveredStopRow = null;
+          }
+        });
 
         m.on("click", () => {
           if (activeStopRow) activeStopRow.classList.remove("active");
@@ -280,6 +358,46 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
         deselectRoute();
       }
     });
+
+    det.addEventListener("mouseenter", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        // A different route is selected — temporarily restore this one
+        r.poly.setStyle({ weight: 4, opacity: 0.85 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 5, opacity: 1 });
+      }
+    });
+
+    det.addEventListener("mouseleave", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        // Restore dimmed state
+        r.poly.setStyle({ weight: 2, opacity: 0.2 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 3, opacity: 0.75 });
+      }
+    });
+  });
+
+  // Stop row hover → highlight the corresponding map marker
+  connList.querySelectorAll(".stop-row[data-stop-id]").forEach(row => {
+    const stopId   = row.dataset.stopId;
+    const routeIdx = parseInt(row.dataset.routeIdx, 10);
+    row.addEventListener("mouseenter", () => {
+      const r = routes[routeIdx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIconHovered(r.color));
+    });
+    row.addEventListener("mouseleave", () => {
+      const r = routes[routeIdx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIcon(r.color));
+    });
   });
 }
 
@@ -336,6 +454,18 @@ function _renderBusConnections(origin, conns) {
         ${lines.length > 1 ? `<div class="bus-trips-body">${tripsHtml}</div>` : ""}
       </details>`;
   }).join("");
+
+  // Hover highlight: enlarge dot marker when hovering a bus row
+  connList.querySelectorAll("details.bus-conn-details").forEach((det, idx) => {
+    det.addEventListener("mouseenter", () => {
+      const m = busMarkers[idx];
+      if (m) m.setIcon(busDestIconHover());
+    });
+    det.addEventListener("mouseleave", () => {
+      const m = busMarkers[idx];
+      if (m) m.setIcon(busDestIcon());
+    });
+  });
 
   // Fit map to include origin + all destinations
   if (conns.length) {
