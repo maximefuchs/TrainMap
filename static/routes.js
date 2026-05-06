@@ -61,6 +61,20 @@ function circleIcon(color) {
   });
 }
 
+function circleIconHovered(color) {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width:14px; height:14px; border-radius:50%;
+      background:${color}; border:2px solid ${color};
+      box-shadow:0 0 10px ${color}cc;
+      outline: 2px solid #fff;
+    "></div>`,
+    iconSize:   [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
 // Bus destination dot — slightly larger, distinct green colour
 function busDestIcon() {
   return L.divIcon({
@@ -208,6 +222,10 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
         r.poly.setStyle({ weight: 4, opacity: 0.85 });
       } else if (activeRouteIdx === null) {
         r.poly.setStyle({ weight: 5, opacity: 1 });
+      }
+      // Only show tooltip when this route is not the focused one
+      if (activeRouteIdx === idx) {
+        hitPoly.closeTooltip();
       }
       const det = document.getElementById(`route-${idx}`);
       if (det) {
@@ -361,6 +379,24 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
       } else if (activeRouteIdx === null) {
         r.poly.setStyle({ weight: 3, opacity: 0.75 });
       }
+    });
+  });
+
+  // Stop row hover → highlight the corresponding map marker
+  connList.querySelectorAll(".stop-row[data-stop-id]").forEach(row => {
+    const stopId   = row.dataset.stopId;
+    const routeIdx = parseInt(row.dataset.routeIdx, 10);
+    row.addEventListener("mouseenter", () => {
+      const r = routes[routeIdx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIconHovered(r.color));
+    });
+    row.addEventListener("mouseleave", () => {
+      const r = routes[routeIdx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIcon(r.color));
     });
   });
 }
