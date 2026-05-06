@@ -18,6 +18,9 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import shutil
+import sqlite3
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date as date_type, datetime
@@ -62,31 +65,46 @@ _TIMEOUT = 10
 # ---------------------------------------------------------------------------
 # GTFS stop lookup
 # ---------------------------------------------------------------------------
-# flixbus_stops.json.gz is generated from the FlixBus GTFS feed (MobilityData
+# flixbus_stops.db.gz is generated from the FlixBus GTFS feed (MobilityData
 # catalog entry de-unknown-flixbus-gtfs-853, updated ~weekly).
 #
-# Structure: dep_station_id -> arr_station_id -> [{t: "HH:MM", s: [[id,name,lat,lon],...]}]
+# It is a gzip-compressed SQLite database with schema:
+#   stops(dep TEXT, arr TEXT, t TEXT, s TEXT)
+# where dep/arr are station UUIDs, t is the GTFS first-stop departure time
+# ("HH:MM", may exceed 24:00 for overnight trips), and s is a JSON array of
+# stop entries [[id, name, lat, lon, "HH:MM"], ...].
 #
-# The lookup is keyed by (any intermediate stop, last stop of the trip) so that
-# boarding mid-route is handled correctly — e.g. a bus from Milan stopping in
-# Strasbourg on its way to Eindhoven is keyed as Strasbourg -> Eindhoven even
-# though Strasbourg is not the trip origin.
-#
-# arr_station_id is always the last stop of the GTFS trip, which matches the
-# station_id returned by the FlixBus search API for the arrival city.
-#
-# The file is loaded once at module import time (2.5 MB gzipped, ~instant).
+# At startup the file is decompressed once into a NamedTemporaryFile and a
+# persistent sqlite3 connection is kept open.  Each lookup is a single indexed
+# SELECT — memory usage is near zero regardless of database size.
 
-_GTFS_PATH = os.path.join(os.path.dirname(__file__), "data", "flixbus_stops.json.gz")
+_GTFS_PATH = os.path.join(os.path.dirname(__file__), "data", "flixbus_stops.db.gz")
 
-def _load_gtfs_stops() -> dict:
+# Holds the NamedTemporaryFile object (keeps the fd open so the file is not
+# deleted on some platforms) and the sqlite3 connection.
+_gtfs_tmp_file = None
+_gtfs_conn: "sqlite3.Connection | None" = None  # type: ignore[name-defined]
+
+
+def _init_gtfs() -> None:
+    """Decompress flixbus_stops.db.gz to a temp file and open a connection."""
+    global _gtfs_tmp_file, _gtfs_conn
+
+    if not os.path.exists(_GTFS_PATH):
+        return
     try:
-        with gzip.open(_GTFS_PATH, "rt", encoding="utf-8") as f:
-            return json.load(f)
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        with gzip.open(_GTFS_PATH, "rb") as f_in:
+            shutil.copyfileobj(f_in, tmp, length=1024 * 1024)
+        tmp.flush()
+        tmp.close()
+        _gtfs_tmp_file = tmp
+        _gtfs_conn = sqlite3.connect(tmp.name, check_same_thread=False)
     except Exception:
-        return {}
+        _gtfs_conn = None
 
-_gtfs_stops: dict = _load_gtfs_stops()
+
+_init_gtfs()
 
 
 def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) -> list[dict] | None:
@@ -102,8 +120,15 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
     amount.  This gives accurate intermediate times as long as the relative
     spacing between stops has not changed (which is typically the case).
     """
-    trips = _gtfs_stops.get(dep_station_id, {}).get(arr_station_id, [])
-    if not trips:
+    if _gtfs_conn is None:
+        return None
+
+    rows = _gtfs_conn.execute(
+        "SELECT t, s FROM stops WHERE dep=? AND arr=?",
+        (dep_station_id, arr_station_id),
+    ).fetchall()
+
+    if not rows:
         return None
 
     def _hhmm_to_mins(t: str) -> int:
@@ -118,16 +143,19 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
 
     target_mins = _hhmm_to_mins(dep_time_hhmm)
 
+    # Parse all trips and pick the one with departure time closest to target
+    trips = [(t_str, json.loads(s_str)) for t_str, s_str in rows]
     if len(trips) == 1:
-        best = trips[0]
+        _, stops_data = trips[0]
     else:
-        best = min(trips, key=lambda e: abs(_hhmm_to_mins(e["t"]) % (24 * 60) - target_mins))
+        _, stops_data = min(
+            trips,
+            key=lambda e: abs(_hhmm_to_mins(e[0]) % (24 * 60) - target_mins),
+        )
 
     # Compute shift: live departure − GTFS first-stop time (in minutes, mod 24h)
-    gtfs_first_mins = _hhmm_to_mins(best["s"][0][4]) if len(best["s"][0]) > 4 else None
+    gtfs_first_mins = _hhmm_to_mins(stops_data[0][4]) if len(stops_data[0]) > 4 else None
     if gtfs_first_mins is not None:
-        # Work in the raw (potentially >24h) GTFS minute space so overnight
-        # trips don't wrap unexpectedly across the stop sequence.
         shift = target_mins - (gtfs_first_mins % (24 * 60))
         # Prefer the shift closest to zero (handles midnight-boundary cases)
         for delta in (0, 24 * 60, -24 * 60):
@@ -138,7 +166,7 @@ def _lookup_stops(dep_station_id: str, arr_station_id: str, dep_time_hhmm: str) 
         shift = 0
 
     result = []
-    for s in best["s"]:
+    for s in stops_data:
         raw_mins = _hhmm_to_mins(s[4]) if len(s) > 4 and s[4] else None
         dep_str = _mins_to_hhmm(raw_mins + shift) if raw_mins is not None else ""
         result.append({"id": s[0], "name": s[1], "lat": s[2], "lon": s[3], "departure_time": dep_str})

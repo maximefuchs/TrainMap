@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
-Rebuild flixbus_stops.json.gz from the latest FlixBus GTFS feed.
+Rebuild flixbus_stops.db.gz from the latest FlixBus GTFS feed.
 
 Downloads the GTFS zip from the MobilityData public catalog, processes it
-into a compact lookup table, and writes providers/data/flixbus_stops.json.gz.
+into a SQLite database, gzip-compresses it, and writes
+providers/data/flixbus_stops.db.gz.
 
 Usage:
     uv run python3 scripts/rebuild_flixbus_stops.py
 
-The output file is used by flixbus_client._lookup_stops() to resolve intermediate
-bus stop coordinates for polyline rendering on the map.
+The output file is used by providers/flixbus.py at startup. It is decompressed
+once into a temporary file and queried on-demand via sqlite3, keeping memory
+usage near zero regardless of the number of routes indexed.
 
-Lookup structure:
-    dep_station_id  ->  arr_station_id  ->  [{t: "HH:MM", s: [[id, name, lat, lon], ...]}]
+Schema:
+    stops(dep TEXT, arr TEXT, t TEXT, s TEXT)
+      dep  — departure station UUID
+      arr  — arrival station UUID
+      t    — GTFS departure time of first stop, "HH:MM" (may exceed 24:00)
+      s    — JSON array of stop entries [[id, name, lat, lon, "HH:MM"], ...]
+
+    Index: (dep, arr) for fast lookup.
 
 Every (stop_i, stop_j) sub-pair within each trip is indexed (i < j), so a bus
 that originates in Milan but boards in Strasbourg on its way to Hamburg is
@@ -25,6 +33,8 @@ import gzip
 import io
 import json
 import os
+import sqlite3
+import tempfile
 import time
 import zipfile
 
@@ -34,7 +44,9 @@ GTFS_URL = (
     "https://storage.googleapis.com/storage/v1/b/mdb-latest/o/"
     "de-unknown-flixbus-gtfs-853.zip?alt=media"
 )
-OUT_PATH = os.path.join(os.path.dirname(__file__), "..", "providers", "data", "flixbus_stops.json.gz")
+OUT_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "providers", "data", "flixbus_stops.db.gz"
+)
 
 
 def main():
@@ -77,13 +89,11 @@ def main():
 
     print(f"  Loaded {len(trip_stops)} trips in {time.time()-t1:.1f}s")
 
-    # 3. Build lookup: all (stop_i, stop_j) sub-pairs with i < j within each trip.
-    #    This ensures mid-route boarding is handled — e.g. a bus from Milan stopping
-    #    in Strasbourg on its way to Hamburg is indexed as Strasbourg -> Hamburg.
+    # 3. Build all (stop_i, stop_j) sub-pairs with i < j within each trip.
     t2 = time.time()
-    lookup: dict[str, dict[str, dict]] = collections.defaultdict(
-        lambda: collections.defaultdict(dict)
-    )
+    # Use a dict to deduplicate before inserting into SQLite.
+    # Key: (dep_sid, arr_sid, fingerprint) → (t, s_json)
+    rows: dict[tuple, tuple] = {}
 
     for tid, seq in trip_stops.items():
         n = len(seq)
@@ -94,44 +104,60 @@ def main():
             dep_hhmm = seq[i][2][:5]
             for j in range(i + 1, n):
                 arr_sid = seq[j][1]
-                # Each stop entry: [id, name, lat, lon, "HH:MM"] — time from stop_times.txt
                 stop_slice = [
                     stops[seq[k][1]] + [seq[k][2][:5]]
                     for k in range(i, j + 1)
                 ]
-                # Deduplicate by full stop-sequence fingerprint
-                key = dep_hhmm + "|" + "|".join(s[0] for s in stop_slice)
-                if key not in lookup[dep_sid][arr_sid]:
-                    lookup[dep_sid][arr_sid][key] = stop_slice
+                fingerprint = dep_hhmm + "|" + "|".join(s[0] for s in stop_slice)
+                key = (dep_sid, arr_sid, fingerprint)
+                if key not in rows:
+                    rows[key] = (
+                        dep_hhmm,
+                        json.dumps(stop_slice, separators=(",", ":")),
+                    )
 
-    print(f"  Built lookup in {time.time()-t2:.1f}s")
+    print(f"  Built {len(rows)} rows in {time.time()-t2:.1f}s")
 
-    # 4. Flatten and write gzipped JSON
-    out: dict[str, dict] = {}
-    for dep_sid, arr_dict in lookup.items():
-        out[dep_sid] = {}
-        for arr_sid, entries in arr_dict.items():
-            out[dep_sid][arr_sid] = [
-                {"t": k.split("|")[0], "s": v} for k, v in entries.items()
-            ]
+    # 4. Write SQLite db to a temp file, then gzip it.
+    t3 = time.time()
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
 
-    data = json.dumps(out, separators=(",", ":")).encode("utf-8")
-    out_path = os.path.realpath(OUT_PATH)
-    with gzip.open(out_path, "wb") as f:
-        f.write(data)
+    try:
+        con = sqlite3.connect(db_path)
+        con.execute(
+            "CREATE TABLE stops "
+            "(dep TEXT NOT NULL, arr TEXT NOT NULL, t TEXT NOT NULL, s TEXT NOT NULL)"
+        )
+        con.executemany(
+            "INSERT INTO stops VALUES (?, ?, ?, ?)",
+            [
+                (dep_sid, arr_sid, t_val, s_json)
+                for (dep_sid, arr_sid, _fp), (t_val, s_json) in rows.items()
+            ],
+        )
+        con.execute("CREATE INDEX idx_dep_arr ON stops (dep, arr)")
+        con.commit()
+        con.close()
 
-    gz_size = os.path.getsize(out_path)
-    dep_count = len(out)
-    pair_count = sum(len(v) for v in out.values())
+        db_size = os.path.getsize(db_path)
+
+        out_path = os.path.realpath(OUT_PATH)
+        with open(db_path, "rb") as f_in, gzip.open(out_path, "wb") as f_out:
+            f_out.write(f_in.read())
+
+        gz_size = os.path.getsize(out_path)
+    finally:
+        os.unlink(db_path)
+
     print(
         f"  Written {out_path}\n"
-        f"  Uncompressed: {len(data)/1024/1024:.1f} MB  "
+        f"  SQLite: {db_size/1024/1024:.1f} MB  "
         f"Compressed: {gz_size/1024/1024:.1f} MB\n"
-        f"  Dep stations: {dep_count}  (dep,arr) pairs: {pair_count}\n"
+        f"  Rows: {len(rows)}\n"
         f"  Total time: {time.time()-t0:.1f}s"
     )
 
 
 if __name__ == "__main__":
     main()
-

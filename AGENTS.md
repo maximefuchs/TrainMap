@@ -50,8 +50,12 @@ all intermediate stops with their scheduled times.
   **not used**.
 - `route_paths` for bus mode is built from the bundled GTFS lookup first, falling
   back to city-level legs from the search response when GTFS has no entry.
-- GTFS lookup file: `providers/data/flixbus_stops.json.gz` (~7.4 MB compressed). Structure:
-  `dep_station_id → arr_station_id → [{t: "HH:MM", s: [[id, name, lat, lon, "HH:MM"], ...]}]`
+- GTFS lookup file: `providers/data/flixbus_stops.db.gz` (~13 MB compressed, ~238 MB SQLite).
+  At startup `_init_gtfs()` decompresses it once to a `NamedTemporaryFile` and keeps a
+  `sqlite3.Connection` open — no full dict load, memory usage near zero.
+  Schema: `stops(dep TEXT, arr TEXT, t TEXT, s TEXT)` + index on `(dep, arr)`.
+  `dep`/`arr` are station UUIDs; `t` is the GTFS first-stop departure "HH:MM"; `s` is a
+  JSON array of `[id, name, lat, lon, "HH:MM"]` entries.
   Every `(stop_i, stop_j)` sub-pair within each GTFS trip is indexed (i < j), so
   mid-route boarding **and** mid-route alighting are both handled.
 - **GTFS time correction:** GTFS schedules drift from the live API over time.
@@ -78,7 +82,7 @@ all intermediate stops with their scheduled times.
 - Script: `scripts/rebuild_flixbus_stops.py`
 - Downloads the latest FlixBus GTFS feed from MobilityData
   (`de-unknown-flixbus-gtfs-853`), indexes all `(stop_i, stop_j)` sub-pairs with
-  per-stop departure times, and writes `providers/data/flixbus_stops.json.gz`.
+  per-stop departure times, and writes `providers/data/flixbus_stops.db.gz`.
 - Run: `uv run python3 scripts/rebuild_flixbus_stops.py` (~10 s, requires internet).
 
 ## Italy / ViaggiaTreno specifics
@@ -172,10 +176,9 @@ i18n.js → map.js → sidebar.js → autocomplete.js → routes.js → app.js
   the sequence. This corrects systematic offset but cannot fix genuine schedule changes.
 - FlixBus city cache is built once per server session via a–z queries (no country filter).
   Cold start adds ~2 s on first bus search.
-- `providers/data/flixbus_stops.json.gz` (~7.4 MB compressed): each stop entry is
-  `[id, name, lat, lon, "HH:MM"]`; the 5th element is the GTFS departure time.
-  Old files with 4-element stop arrays are handled gracefully (`departure_time` defaults
-  to `""`). Run `rebuild_flixbus_stops.py` to regenerate.
+- `providers/data/flixbus_stops.db.gz` (~13 MB compressed, ~238 MB SQLite): decompressed
+  once at startup into a temp file; queried via `sqlite3` on demand. Each stop entry in
+  the `s` column is `[id, name, lat, lon, "HH:MM"]`. Run `rebuild_flixbus_stops.py` to regenerate.
 - Render free tier spins down after inactivity (~30 s cold start).
 - OSM tile servers have a usage policy — do not change `maxZoom` above 19 or
   remove the attribution.
