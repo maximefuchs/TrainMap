@@ -75,6 +75,20 @@ function busDestIcon() {
   });
 }
 
+// Enlarged version for sidebar hover
+function busDestIconHover() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width:18px; height:18px; border-radius:50%;
+      background:#22c55e; border:2px solid #fff;
+      box-shadow:0 0 10px #22c55ecc;
+    "></div>`,
+    iconSize:   [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
 const originIcon = L.divIcon({
   className: "",
   html: `<div style="
@@ -280,6 +294,28 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
         deselectRoute();
       }
     });
+
+    det.addEventListener("mouseenter", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        // A different route is selected — temporarily restore this one
+        r.poly.setStyle({ weight: 4, opacity: 0.85 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 5, opacity: 1 });
+      }
+    });
+
+    det.addEventListener("mouseleave", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        // Restore dimmed state
+        r.poly.setStyle({ weight: 2, opacity: 0.2 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 3, opacity: 0.75 });
+      }
+    });
   });
 }
 
@@ -336,6 +372,18 @@ function _renderBusConnections(origin, conns) {
         ${lines.length > 1 ? `<div class="bus-trips-body">${tripsHtml}</div>` : ""}
       </details>`;
   }).join("");
+
+  // Hover highlight: enlarge dot marker when hovering a bus row
+  connList.querySelectorAll("details.bus-conn-details").forEach((det, idx) => {
+    det.addEventListener("mouseenter", () => {
+      const m = busMarkers[idx];
+      if (m) m.setIcon(busDestIconHover());
+    });
+    det.addEventListener("mouseleave", () => {
+      const m = busMarkers[idx];
+      if (m) m.setIcon(busDestIcon());
+    });
+  });
 
   // Fit map to include origin + all destinations
   if (conns.length) {
