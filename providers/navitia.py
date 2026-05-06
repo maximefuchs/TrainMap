@@ -151,11 +151,16 @@ def get_direct_connections(
     stop_area_id: str,
     date: Optional[str] = None,
     progress_callback=None,
+    route_callback=None,
     country: str = "fr",
 ) -> dict:
     """
     Return all stations reachable on a direct train from *stop_area_id*.
     Dispatches to trenitalia_client for Italy.
+
+    If *route_callback* is provided it is called with (connection, route_path)
+    immediately after each new route_path is discovered, enabling progressive
+    rendering on the frontend.
 
     Returns:
       {
@@ -165,7 +170,8 @@ def get_direct_connections(
     """
     if country == "it":
         return trenitalia_client.get_direct_connections(
-            stop_area_id, date=date, progress_callback=progress_callback
+            stop_area_id, date=date, progress_callback=progress_callback,
+            route_callback=route_callback,
         )
 
     base_url = get_base_url(country)
@@ -217,7 +223,18 @@ def get_direct_connections(
                 continue
 
             schedules = r.json().get("route_schedules", [])
-            _process_route_schedules(schedules, stop_area_id, connections, route_paths)
+            new_paths = _process_route_schedules(schedules, stop_area_id, connections, route_paths)
+
+            if route_callback:
+                for route_path in new_paths:
+                    # Find a representative connection for this route_path
+                    # (the last stop that isn't the origin)
+                    dest_stop = next(
+                        (s for s in reversed(route_path["stops"]) if s["id"] != stop_area_id),
+                        None,
+                    )
+                    if dest_stop and dest_stop["id"] in connections:
+                        route_callback(connections[dest_stop["id"]], route_path)
 
             if progress_callback:
                 progress_callback(
@@ -256,7 +273,9 @@ def _process_route_schedules(
     origin_sa_id: str,
     connections: dict[str, dict],
     route_paths: dict[tuple, dict],
-) -> None:
+) -> list[dict]:
+    """Process route schedules and return a list of newly added route_paths."""
+    new_paths: list[dict] = []
     for schedule in schedules:
         table = schedule.get("table", {})
         rows = table.get("rows", [])
@@ -358,3 +377,6 @@ def _process_route_schedules(
                 "arrival_time": arr_time,
                 "stops": path_stops_valid,
             }
+            new_paths.append(route_paths[seq_key])
+
+    return new_paths

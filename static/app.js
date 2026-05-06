@@ -316,14 +316,14 @@ async function selectStation(station) {
   });
 
   es.addEventListener("route", (e) => {
-    // Bus mode: each route arrives individually as it is resolved.
+    // Both modes: each route arrives individually as it is resolved.
     const { route_path, connection } = JSON.parse(e.data);
     if (!route_path) return;
 
-    // Patch origin coords (same logic as the done handler)
+    // Patch origin coords
     if (route_path.stops && route_path.stops.length > 0) {
       const first = route_path.stops[0];
-      if (!first.lat && !first.lon || first.id === station.id) {
+      if ((!first.lat && !first.lon) || first.id === station.id) {
         first.lat  = station.lat;
         first.lon  = station.lon;
         first.name = first.name || station.name;
@@ -346,44 +346,18 @@ async function selectStation(station) {
     hideProgress();
 
     const data  = JSON.parse(e.data);
-    const conns = data.connections  || [];
-    const paths = data.route_paths  || [];
+    const conns = data.connections || [];
 
-    // Train mode: routes arrive all at once in 'done' (Navitia batches everything).
-    // Bus mode: routes were already rendered incrementally via 'route' events;
-    // just update the final count and status.
-    if (selectedMode === "train") {
-      // Patch origin coords for train paths
-      paths.forEach(path => {
-        if (path.stops && path.stops.length > 0) {
-          const first = path.stops[0];
-          const missingCoords = !first.lat && !first.lon;
-          const isOrigin = first.id === station.id;
-          if (missingCoords || isOrigin) {
-            first.lat  = station.lat;
-            first.lon  = station.lon;
-            first.name = first.name || station.name;
-          }
-        }
-      });
-
-      const displayCount    = paths.length || conns.length;
-      connCount.textContent = t("routeCount", displayCount);
-      fabCount.textContent  = displayCount;
-
-      renderConnections(station, paths, conns, selectedMode);
-    } else {
-      // Bus: final count from the connection list (some may have no route_path)
-      const displayCount    = conns.length || routes.length;
-      connCount.textContent = t("routeCount", displayCount);
-      fabCount.textContent  = displayCount;
-
-      if (routes.length === 0 && conns.length) {
-        // Fallback: no route_paths streamed, render dot-only
-        renderConnections(station, [], conns, selectedMode);
-      }
+    // Routes were already rendered incrementally via 'route' events for both modes.
+    // On 'done', just update final counts and status. If no routes were streamed
+    // (e.g. no route_paths available), fall back to dot-only bus rendering.
+    if (routes.length === 0 && conns.length) {
+      renderConnections(station, [], conns, selectedMode);
     }
 
+    const displayCount    = routes.length || conns.length;
+    connCount.textContent = t("routeCount", displayCount);
+    fabCount.textContent  = displayCount;
     showStatus(t("connectionsFound", conns.length || routes.length), "ok");
 
     if (isMobile()) peekSidebar();

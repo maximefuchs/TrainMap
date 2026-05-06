@@ -124,7 +124,8 @@ async def stream_connections(
             future = loop.run_in_executor(
                 executor,
                 lambda: navitia_client.get_direct_connections(
-                    station_id, date=date, progress_callback=on_progress, country=country
+                    station_id, date=date, progress_callback=on_progress,
+                    route_callback=on_route, country=country,
                 ),
             )
 
