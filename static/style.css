@@ -224,14 +224,15 @@ header h1 span { color: #38bdf8; }
 /* ── Data coverage notice ────────────────────────────────── */
 #data-coverage {
   position: fixed;
-  bottom: 28px;
-  right: 8px;
-  font-size: 0.72rem;
-  color: #94a3b8;
-  opacity: 0.75;
+  bottom: 0px;
+  left: 348px; /* 340px sidebar + 8px gap */
+  font-size: 0.75rem;
+  color: #e2e8f0;
+  opacity: 0.9;
   pointer-events: none;
   z-index: 800;
   line-height: 1.4;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
 }
 
 /* ── Progress bar ────────────────────────────────────────── */
@@ -507,6 +508,7 @@ path.leaflet-interactive:focus { outline: none; }
 /* ── Tablet (≤ 900px) ────────────────────────────────────── */
 @media (max-width: 900px) {
   #sidebar { width: 260px; }
+  #data-coverage { left: 268px; } /* 260px sidebar + 8px gap */
 
   /* Shrink / hide less critical header items */
   #status { display: none; }
@@ -514,6 +516,7 @@ path.leaflet-interactive:focus { outline: none; }
 
 /* ── Mobile (≤ 600px) ────────────────────────────────────── */
 @media (max-width: 600px) {
+  #data-coverage { left: 8px; } /* sidebar is a bottom sheet, no left offset needed */
   /* Header: two-row layout */
   header {
     flex-wrap: wrap;

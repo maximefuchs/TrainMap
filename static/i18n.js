@@ -24,7 +24,7 @@ const TRANSLATIONS = {
     exploreFrom:        "Explore from here",
     modeTrain:          "Train",
     modeBus:            "Bus",
-    dataCoverage:       "Train data: 🇫🇷 🇮🇹",
+    dataCoverage:       "Available countries: 🇫🇷 🇮🇹",
     metaDescription:    "Explore all cities reachable by direct train or bus from any station. Live schedules for France and Italy.",
   },
   fr: {
@@ -51,7 +51,7 @@ const TRANSLATIONS = {
     exploreFrom:        "Explorer depuis ici",
     modeTrain:          "Train",
     modeBus:            "Bus",
-    dataCoverage:       "Données train : 🇫🇷 🇮🇹",
+    dataCoverage:       "Pays disponibles: 🇫🇷 🇮🇹",
     metaDescription:    "Explorez toutes les villes accessibles en train ou bus direct depuis n'importe quelle gare. Horaires en direct pour la France et l'Italie.",
   },
 };
