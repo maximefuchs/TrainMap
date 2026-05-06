@@ -35,6 +35,8 @@ _CSV_PATH = Path(__file__).parent / "data" / "trenitalia_stations.csv"
 
 # Maps station id (e.g. "S08409") → {"name": str, "lat": float, "lon": float}
 _STATION_COORDS: dict[str, dict] = {}
+# Stations confirmed to have no coords (204 / missing data) — skip immediately
+_STATION_NO_COORDS: set[str] = set()
 
 def _load_station_coords() -> None:
     if not _CSV_PATH.exists():
@@ -157,15 +159,21 @@ def _fetch_station_coords(station_id: str) -> Optional[dict]:
     Fetch station coordinates from the ViaggiaTreno API when the CSV doesn't
     have them.  Requires two calls: regione/<id> then dettaglioStazione/<id>/<reg>.
     Returns {"lat": float, "lon": float} or None on failure.
+    Results (both success and failure) are cached so each station is only
+    looked up once per server session.
     """
+    if station_id in _STATION_NO_COORDS:
+        return None
     try:
         r = _get(f"regione/{station_id}", timeout=5)
         if r.status_code != 200 or not r.text.strip():
+            _STATION_NO_COORDS.add(station_id)
             return None
         region_code = r.text.strip()
 
         r2 = _get(f"dettaglioStazione/{station_id}/{region_code}", timeout=5)
         if r2.status_code != 200:
+            _STATION_NO_COORDS.add(station_id)
             return None
         data = r2.json()
         lat = data.get("lat")
@@ -178,6 +186,7 @@ def _fetch_station_coords(station_id: str) -> Optional[dict]:
             return result
     except Exception as e:
         print(f"[ViaggiaTreno] coords lookup failed for {station_id}: {e}")
+    _STATION_NO_COORDS.add(station_id)
     return None
 
 
@@ -226,13 +235,27 @@ def _fetch_train_stops(train_num: int, orig_id: str, ts) -> Optional[dict]:
     """
     Return the andamentoTreno JSON for *train_num*, falling back to the
     today-anchored orig/ts when the direct call returns 204 (future date).
-    """
-    # First try with the supplied orig_id / ts (works for today's trains)
-    r = _get(f"andamentoTreno/{orig_id}/{train_num}/{ts}")
-    if r.status_code == 200 and r.content:
-        return r.json()
 
-    # 204 or empty → train is future/not-yet-running; use today's anchor
+    Optimisation: if *ts* is a millisecond timestamp for a date other than
+    today, the direct call is guaranteed to return 204 — skip it and go
+    straight to the anchor lookup.
+    """
+    # Determine whether the departure timestamp belongs to today
+    ts_is_today = False
+    try:
+        ts_int = int(ts)
+        dep_date = datetime.fromtimestamp(ts_int / 1000).date()
+        ts_is_today = (dep_date == datetime.now().date())
+    except (TypeError, ValueError, OSError):
+        ts_is_today = True  # can't tell — try the direct call anyway
+
+    if ts_is_today:
+        # Try with the supplied orig_id / ts (works for today's trains)
+        r = _get(f"andamentoTreno/{orig_id}/{train_num}/{ts}")
+        if r.status_code == 200 and r.content:
+            return r.json()
+
+    # 204, empty, or future date → use today's anchor
     anchor = _fetch_train_anchor(train_num)
     if anchor is None:
         return None
