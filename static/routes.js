@@ -412,6 +412,11 @@ function addRoute(origin, path) {
   const route = _buildRouteMapLayer(origin, path, idx);
   routes.push(route);
 
+  // If another route is already selected, add this one dimmed
+  if (activeRouteIdx !== null) {
+    route.poly.setStyle({ weight: 2, opacity: 0.2 });
+  }
+
   const html = _buildRouteSidebarHtml(origin, path, idx);
   connList.insertAdjacentHTML("beforeend", html);
   const det = document.getElementById(`route-${idx}`);
