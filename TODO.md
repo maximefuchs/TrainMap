@@ -17,10 +17,10 @@
 
 ## UI / UX
 
-- show routes on map while the rest is still loading
 - put country picker after train or bus picker (if bus, dont show country picker)
 - combine research for countries (and remove country picker)
 - for bus: try to filter faster the routes needed
+- for italian trains, lots of elements have status 204. See if it's possible to know in advance and skip it
 - smartphone display: date and search button below city selection + put the language selector on like a discreet floating button
 
 # Bugs
