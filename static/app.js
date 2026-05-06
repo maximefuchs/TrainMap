@@ -78,7 +78,10 @@ function applyLang() {
   sidebarLabel.textContent      = t("sidebarHeader");
   modeBtnTrain.textContent      = t("modeTrain");
   modeBtnBus.textContent        = t("modeBus");
-  if (dataCoverageEl) dataCoverageEl.textContent = t("dataCoverage");
+  if (dataCoverageEl) {
+    dataCoverageEl.textContent = selectedMode === "bus" ? "" : t("dataCoverage");
+    dataCoverageEl.hidden = selectedMode === "bus";
+  }
   const currentEmptyText = document.getElementById("empty-state-text");
   if (currentEmptyText) currentEmptyText.textContent = t("emptyStateText");
 
