@@ -44,7 +44,7 @@ input.addEventListener("focus", () => { if (ac.innerHTML) ac.style.display = "bl
 
 async function fetchSuggestions(q) {
   try {
-    const res  = await fetch(`/api/stations?q=${encodeURIComponent(q)}&country=${encodeURIComponent(selectedCountry)}&mode=${encodeURIComponent(selectedMode)}`);
+    const res  = await fetch(`/api/stations?q=${encodeURIComponent(q)}&mode=${encodeURIComponent(selectedMode)}`);
     const data = await res.json();
 
     if (!res.ok) {
@@ -72,6 +72,10 @@ function cleanStationName(name) {
   }).trim();
 }
 
+// ── Flag map ──────────────────────────────────────────────────────────────────
+
+const FLAGS = { fr: "🇫🇷", it: "🇮🇹", eu: "🚌" };
+
 function renderSuggestions(stations) {
   if (!stations.length) {
     ac.style.display = "none";
@@ -80,11 +84,13 @@ function renderSuggestions(stations) {
 
   ac.innerHTML = stations.map(s => {
     const display = cleanStationName(s.name);
+    const flag    = FLAGS[s.country] || "";
     return `<div class="ac-item"
                  data-id="${s.id}"
                  data-name="${display}"
                  data-lat="${s.lat}"
-                 data-lon="${s.lon}">${display}</div>`;
+                 data-lon="${s.lon}"
+                 data-country="${s.country || ""}">${flag ? `<span class="ac-flag">${flag}</span>` : ""}${display}</div>`;
   }).join("");
 
   ac.style.display = "block";
@@ -94,10 +100,11 @@ function renderSuggestions(stations) {
   ac.querySelectorAll(".ac-item").forEach(el => {
     el.addEventListener("mousedown", () => {
       const station = {
-        id:  el.dataset.id,
-        name: el.dataset.name,
-        lat: parseFloat(el.dataset.lat),
-        lon: parseFloat(el.dataset.lon),
+        id:      el.dataset.id,
+        name:    el.dataset.name,
+        lat:     parseFloat(el.dataset.lat),
+        lon:     parseFloat(el.dataset.lon),
+        country: el.dataset.country,
       };
       input.value      = station.name;
       ac.style.display = "none";

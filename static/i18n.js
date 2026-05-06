@@ -1,22 +1,15 @@
 // ── Translations ──────────────────────────────────────────────────────────────
 const TRANSLATIONS = {
   en: {
-    pageTitle:          (country) => country === "it"
-                          ? "Train Map — Direct Connections in Italy"
-                          : "Train Map — Direct Connections in France",
-    searchPlaceholder:  (country, mode) => {
-                          if (mode === "bus") return country === "it"
-                            ? "Search an Italian city…"
-                            : "Search a French city…";
-                          return country === "it"
-                            ? "Search an Italian city or station…"
-                            : "Search a French city or station…";
-                        },
+    pageTitle:          "TrainMap — Direct Connections",
+    searchPlaceholder:  (mode) => mode === "bus"
+                          ? "Search a city…"
+                          : "Search a city or station…",
     dateTitle:          "Schedule date",
-    statusDefault:      "Pick a country, then search for a city",
+    statusDefault:      "Search for a city or station to get started",
     statusPickDate:     "Station selected — pick a date then press Search",
     sidebarHeader:      "Routes",
-    emptyStateText:     "Select a country, search for a station, then pick a date to see all cities reachable by direct train.",
+    emptyStateText:     "Search for a station, then pick a date to see all cities reachable by direct train or bus.",
     loadingConnections: "Loading connections…",
     loadingList:        "Loading…",
     loadingProgress:    (current, total) => `Fetching routes… ${current}/${total}`,
@@ -29,30 +22,21 @@ const TRANSLATIONS = {
     errorPrefix:        "Error",
     connectionError:    "Connection error",
     exploreFrom:        "Explore from here",
-    countryLabel:       "Country",
     modeTrain:          "Train",
     modeBus:            "Bus",
-    metaDescription:    (country) => country === "it"
-                          ? "Explore all cities reachable by direct train from any Italian station. Live schedules powered by the Navitia API."
-                          : "Explore all cities reachable by direct train from any French station. Live schedules powered by the SNCF API.",
+    dataCoverage:       "Available countries: 🇫🇷 🇮🇹",
+    metaDescription:    "Explore all cities reachable by direct train or bus from any station. Live schedules for France and Italy.",
   },
   fr: {
-    pageTitle:          (country) => country === "it"
-                          ? "Train Map — Connexions directes en Italie"
-                          : "Train Map — Connexions directes en France",
-    searchPlaceholder:  (country, mode) => {
-                          if (mode === "bus") return country === "it"
-                            ? "Rechercher une ville en Italie…"
-                            : "Rechercher une ville…";
-                          return country === "it"
-                            ? "Rechercher une ville ou une gare en Italie…"
-                            : "Rechercher une ville ou une gare…";
-                        },
+    pageTitle:          "TrainMap — Connexions directes",
+    searchPlaceholder:  (mode) => mode === "bus"
+                          ? "Rechercher une ville…"
+                          : "Rechercher une ville ou une gare…",
     dateTitle:          "Date d'horaire",
-    statusDefault:      "Choisissez un pays, puis cherchez une ville",
+    statusDefault:      "Recherchez une ville ou une gare pour commencer",
     statusPickDate:     "Gare sélectionnée — choisissez une date puis lancez la recherche",
     sidebarHeader:      "Lignes",
-    emptyStateText:     "Sélectionnez un pays, cherchez une gare, puis choisissez une date pour voir toutes les villes accessibles en train direct.",
+    emptyStateText:     "Cherchez une gare puis choisissez une date pour voir toutes les villes accessibles en train ou bus direct.",
     loadingConnections: "Chargement des connexions…",
     loadingList:        "Chargement…",
     loadingProgress:    (current, total) => `Récupération des lignes… ${current}/${total}`,
@@ -65,12 +49,10 @@ const TRANSLATIONS = {
     errorPrefix:        "Erreur",
     connectionError:    "Erreur de connexion",
     exploreFrom:        "Explorer depuis ici",
-    countryLabel:       "Pays",
     modeTrain:          "Train",
     modeBus:            "Bus",
-    metaDescription:    (country) => country === "it"
-                          ? "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare italienne. Horaires en temps réel via l'API Navitia."
-                          : "Explorez toutes les villes accessibles en train direct depuis n'importe quelle gare française. Horaires en temps réel via l'API SNCF.",
+    dataCoverage:       "Pays disponibles: 🇫🇷 🇮🇹",
+    metaDescription:    "Explorez toutes les villes accessibles en train ou bus direct depuis n'importe quelle gare. Horaires en direct pour la France et l'Italie.",
   },
 };
 

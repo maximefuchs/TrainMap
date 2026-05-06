@@ -2,7 +2,6 @@
 // Entry point — wires together all modules and owns the features that don't
 // belong cleanly to a single sub-module:
 //   • i18n: applying translations to the DOM
-//   • Country selector: switches data source between France and Italy
 //   • Mode toggle: switches between Train and Bus transport modes
 //   • Date picker: default value + triggering a re-fetch on change
 //   • Progress bar: show/hide/update during SSE streaming
@@ -20,69 +19,13 @@ const dateInput     = document.getElementById("date-input");
 const progressWrap  = document.getElementById("progress-bar-wrap");
 const progressBar   = document.getElementById("progress-bar");
 const langSelect    = document.getElementById("lang-select");
-const countrySelect = document.getElementById("country-select");
 const searchBtn     = document.getElementById("search-btn");
 const modeBtnTrain  = document.getElementById("mode-train");
 const modeBtnBus    = document.getElementById("mode-bus");
+const dataCoverageEl = document.getElementById("data-coverage");
 
-// ── Country selection ─────────────────────────────────────────────────────────
-
-// Default map centres and zoom levels per country
-const COUNTRY_MAP_VIEW = {
-  fr: { center: [46.5, 2.5],  zoom: 6 },
-  it: { center: [42.5, 12.5], zoom: 6 },
-};
-
-// Persisted across sessions; defaults to France
-const _savedCountry = localStorage.getItem("country");
-let selectedCountry = (_savedCountry === "fr" || _savedCountry === "it")
-  ? _savedCountry
-  : "fr";
-
-countrySelect.value = selectedCountry;
-
-countrySelect.addEventListener("change", () => {
-  selectedCountry = countrySelect.value;
-  localStorage.setItem("country", selectedCountry);
-
-  // Cancel any in-flight search before clearing the map
-  cancelActiveStream();
-  _pickerOpenedForStation = false;
-
-  // Clear map layers, markers, and sidebar route list
-  clearMap();
-  selectedStation = null;
-
-  // Clear the station input and collapse the autocomplete dropdown
-  input.value        = "";
-  ac.innerHTML       = "";
-  ac.style.display   = "none";
-
-  // Reset sidebar counts and list to empty state
-  connCount.textContent = "0";
-  fabCount.textContent  = "0";
-  connList.innerHTML    = `<div id="empty-state"><p id="empty-state-text">${t("emptyStateText")}</p></div>`;
-
-  // Reset status bar to idle
-  showStatus(t("statusDefault"), "");
-  updateSearchBtn();
-
-  // Re-centre the map for the new country
-  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
-  map.setView(view.center, view.zoom, { animate: true });
-
-  // Update all translatable strings (placeholders, title, meta…)
-  applyLang();
-
-  // Step 1 done → move focus to the station search
-  input.focus();
-});
-
-// Set initial map view for the persisted country
-(function () {
-  const view = COUNTRY_MAP_VIEW[selectedCountry] || COUNTRY_MAP_VIEW.fr;
-  map.setView(view.center, view.zoom);
-})();
+// Initial pan-Europe map view
+map.setView([48, 10], 5);
 
 // ── Mode toggle (Train / Bus) ─────────────────────────────────────────────────
 
@@ -126,28 +69,31 @@ modeBtnBus.addEventListener("click",   () => _onModeSwitch("bus"));
 // ── i18n ──────────────────────────────────────────────────────────────────────
 
 function applyLang() {
-  const description = t("metaDescription", selectedCountry);
+  const description = t("metaDescription");
 
   document.documentElement.lang = currentLang;
-  document.title                = t("pageTitle", selectedCountry);
-  input.placeholder             = t("searchPlaceholder", selectedCountry, selectedMode);
+  document.title                = t("pageTitle");
+  input.placeholder             = t("searchPlaceholder", selectedMode);
   dateInput.title               = t("dateTitle");
   sidebarLabel.textContent      = t("sidebarHeader");
   modeBtnTrain.textContent      = t("modeTrain");
   modeBtnBus.textContent        = t("modeBus");
+  if (dataCoverageEl) {
+    dataCoverageEl.textContent = selectedMode === "bus" ? "" : t("dataCoverage");
+    dataCoverageEl.hidden = selectedMode === "bus";
+  }
   const currentEmptyText = document.getElementById("empty-state-text");
   if (currentEmptyText) currentEmptyText.textContent = t("emptyStateText");
 
   document.querySelector('meta[name="description"]').setAttribute("content", description);
-  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle", selectedCountry));
+  document.querySelector('meta[property="og:title"]').setAttribute("content", t("pageTitle"));
   document.querySelector('meta[property="og:description"]').setAttribute("content", description);
 
   if (!status.className) {
     status.textContent = t("statusDefault");
   }
 
-  langSelect.value    = currentLang;
-  countrySelect.value = selectedCountry;
+  langSelect.value = currentLang;
 }
 
 langSelect.addEventListener("change", () => {
@@ -301,7 +247,8 @@ async function selectStation(station) {
   const dateParam = dateInput.value
     ? "&date=" + dateInput.value.replace(/-/g, "")
     : "";
-  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(selectedCountry)}&mode=${encodeURIComponent(selectedMode)}${dateParam}`;
+  const country = station.country || "fr";
+  const url = `/api/connections/stream?station_id=${encodeURIComponent(station.id)}&country=${encodeURIComponent(country)}&mode=${encodeURIComponent(selectedMode)}${dateParam}`;
 
   cancelActiveStream();
 

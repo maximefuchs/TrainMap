@@ -16,6 +16,10 @@ from providers import flixbus as flixbus_client
 
 app = FastAPI(title="Train Map API")
 
+# Countries supported for train mode — add new entries here to extend coverage.
+# Each entry: (country_code, has_token_requirement)
+TRAIN_COUNTRIES = ["fr", "it"]
+
 # Serve static frontend files
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(exist_ok=True)
@@ -51,23 +55,60 @@ def _check_token(country: str, mode: str = "train") -> None:
 @app.get("/api/stations")
 async def search_stations(
     q: str = Query(..., min_length=2, description="Search query"),
-    country: str = Query("fr", description="Country code: 'fr' or 'it'"),
     mode: str = Query("train", description="Transport mode: 'train' or 'bus'"),
 ):
-    """Autocomplete station names. Returns list of {id, name, lat, lon}."""
-    _check_token(country, mode)
-    try:
-        if mode == "bus":
-            results = flixbus_client.search_cities(q, country=country)
-        else:
-            results = navitia_client.search_stations(q, count=10, country=country)
-        return {"stations": results}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Cannot reach API: {e}")
+    """
+    Autocomplete station/city names across all supported countries.
+    Returns list of {id, name, lat, lon, country}.
+    For bus mode, queries FlixBus (Europe-wide, country='eu').
+    For train mode, fans out to all TRAIN_COUNTRIES concurrently, tagging
+    each result with its source country. Countries with missing tokens are
+    silently skipped rather than failing the whole request.
+    """
+    if mode == "bus":
+        try:
+            results = flixbus_client.search_cities(q)
+            for r in results:
+                r["country"] = "eu"
+            return {"stations": results}
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+    # Train mode: fan out to all countries concurrently
+    async def _search_country(country: str) -> list[dict]:
+        try:
+            _check_token(country, "train")
+        except HTTPException:
+            return []  # token missing — skip silently
+        try:
+            loop = asyncio.get_event_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as ex:
+                results = await loop.run_in_executor(
+                    ex,
+                    lambda: navitia_client.search_stations(q, count=8, country=country),
+                )
+            for r in results:
+                r["country"] = country
+            return results
+        except Exception:
+            return []
+
+    results_per_country = await asyncio.gather(
+        *[_search_country(c) for c in TRAIN_COUNTRIES]
+    )
+
+    # Merge, dedup by id, preserve per-country order
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for country_results in results_per_country:
+        for r in country_results:
+            if r["id"] not in seen:
+                seen.add(r["id"])
+                merged.append(r)
+
+    return {"stations": merged}
+
 
 
 @app.get("/api/connections/stream")
