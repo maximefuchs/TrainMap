@@ -253,6 +253,7 @@ def get_direct_connections(
     station_id: str,
     date: Optional[str] = None,
     progress_callback=None,
+    route_callback=None,
 ) -> dict:
     """
     Return all stations reachable by a direct train from *station_id*.
@@ -347,10 +348,19 @@ def get_direct_connections(
         if len(stops) >= 2:
             seq_key = tuple(s["id"] for s in stops)
             if seq_key not in route_paths:
-                route_paths[seq_key] = {
+                route_path = {
                     "line_code": line_code,
                     "stops": stops,
                 }
+                route_paths[seq_key] = route_path
+
+                if route_callback:
+                    dest_stop = next(
+                        (s for s in reversed(stops) if s["id"] != station_id),
+                        None,
+                    )
+                    if dest_stop and dest_stop["id"] in connections:
+                        route_callback(connections[dest_stop["id"]], route_path)
 
         if progress_callback:
             progress_callback(idx + 1, total, f"Processed {idx + 1}/{total} trains…")

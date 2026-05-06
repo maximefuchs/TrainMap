@@ -82,6 +82,7 @@ async def stream_connections(
 
     Event types:
       progress  {"type": "progress", "current": int, "total": int, "message": str}
+      route     {"connection": {...}, "route_path": {...}}   (bus mode only, one per route)
       done      {"connections": [...], "route_paths": [...], "count": int}
       error     {"detail": str}
     """
@@ -102,6 +103,12 @@ async def stream_connections(
                 {"type": "progress", "current": current, "total": total, "message": message},
             )
 
+        def on_route(connection, route_path):
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "route", "connection": connection, "route_path": route_path},
+            )
+
         import concurrent.futures
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
@@ -109,34 +116,42 @@ async def stream_connections(
             future = loop.run_in_executor(
                 executor,
                 lambda: flixbus_client.get_direct_connections(
-                    station_id, date=date, country=country, progress_callback=on_progress
+                    station_id, date=date, country=country,
+                    progress_callback=on_progress, route_callback=on_route,
                 ),
             )
         else:
             future = loop.run_in_executor(
                 executor,
                 lambda: navitia_client.get_direct_connections(
-                    station_id, date=date, progress_callback=on_progress, country=country
+                    station_id, date=date, progress_callback=on_progress,
+                    route_callback=on_route, country=country,
                 ),
             )
 
         while not future.done():
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                yield f"event: progress\ndata: {json.dumps(event)}\n\n"
+                if event["type"] == "route":
+                    yield f"event: route\ndata: {json.dumps(event)}\n\n"
+                else:
+                    yield f"event: progress\ndata: {json.dumps(event)}\n\n"
             except asyncio.TimeoutError:
                 pass
 
         while not queue.empty():
             event = queue.get_nowait()
-            yield f"event: progress\ndata: {json.dumps(event)}\n\n"
+            if event["type"] == "route":
+                yield f"event: route\ndata: {json.dumps(event)}\n\n"
+            else:
+                yield f"event: progress\ndata: {json.dumps(event)}\n\n"
 
         try:
             result = await future
             payload = {
                 "connections": result["connections"],
-                "route_paths": result["route_paths"],
-                "count": len(result["connections"]),
+                "route_paths":  result["route_paths"],
+                "count":        len(result["connections"]),
             }
             yield f"event: done\ndata: {json.dumps(payload)}\n\n"
         except httpx.HTTPStatusError as e:

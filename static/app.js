@@ -315,6 +315,29 @@ async function selectStation(station) {
     showStatus(t("loadingProgress", current, total), "loading");
   });
 
+  es.addEventListener("route", (e) => {
+    // Both modes: each route arrives individually as it is resolved.
+    const { route_path, connection } = JSON.parse(e.data);
+    if (!route_path) return;
+
+    // Patch origin coords
+    if (route_path.stops && route_path.stops.length > 0) {
+      const first = route_path.stops[0];
+      if ((!first.lat && !first.lon) || first.id === station.id) {
+        first.lat  = station.lat;
+        first.lon  = station.lon;
+        first.name = first.name || station.name;
+      }
+    }
+
+    addRoute(station, route_path);
+
+    // Update running counts
+    const count = routes.length;
+    connCount.textContent = t("routeCount", count);
+    fabCount.textContent  = count;
+  });
+
   es.addEventListener("done", (e) => {
     es.close();
     activeStream = null;
@@ -323,37 +346,19 @@ async function selectStation(station) {
     hideProgress();
 
     const data  = JSON.parse(e.data);
-    const conns = data.connections  || [];
-    const paths = data.route_paths  || [];
+    const conns = data.connections || [];
 
-    // The backend resolves origin coords from the city cache. For bus mode the
-    // cache is built without a country filter and may miss some cities. Patch
-    // the first stop of every route path with the known coords from the
-    // autocomplete selection — but only when the first stop's id matches the
-    // searched station/city (i.e. it is genuinely the origin placeholder) or
-    // when the coords are missing. GTFS-resolved first stops have their own
-    // precise coords and should not be overwritten.
-    paths.forEach(path => {
-      if (path.stops && path.stops.length > 0) {
-        const first = path.stops[0];
-        const missingCoords = !first.lat && !first.lon;
-        const isOrigin = first.id === station.id;
-        if (missingCoords || isOrigin) {
-          first.lat  = station.lat;
-          first.lon  = station.lon;
-          first.name = first.name || station.name;
-        }
-      }
-    });
+    // Routes were already rendered incrementally via 'route' events for both modes.
+    // On 'done', just update final counts and status. If no routes were streamed
+    // (e.g. no route_paths available), fall back to dot-only bus rendering.
+    if (routes.length === 0 && conns.length) {
+      renderConnections(station, [], conns, selectedMode);
+    }
 
-    showStatus(t("connectionsFound", conns.length), "ok");
-
-    const displayCount    = paths.length || conns.length;
-    const routeLabel      = t("routeCount", displayCount);
-    connCount.textContent = routeLabel;
+    const displayCount    = routes.length || conns.length;
+    connCount.textContent = t("routeCount", displayCount);
     fabCount.textContent  = displayCount;
-
-    renderConnections(station, paths, conns, selectedMode);
+    showStatus(t("connectionsFound", conns.length || routes.length), "ok");
 
     if (isMobile()) peekSidebar();
   });

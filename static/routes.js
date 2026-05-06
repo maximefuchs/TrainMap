@@ -181,7 +181,196 @@ connList.addEventListener("click", (e) => {
   selectStation(station);
 });
 
-// ── Render connections ────────────────────────────────────────────────────────
+// ── Shared per-route helpers ──────────────────────────────────────────────────
+
+function _buildRouteMapLayer(origin, path, idx) {
+  const color   = routeColor(idx);
+  const latlngs = path.stops.map(s => [s.lat, s.lon]);
+
+  const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
+
+  const hitPoly = L.polyline(latlngs, {
+    color, weight: 20, opacity: 0, interactive: true,
+  }).addTo(map);
+  const firstName = path.stops[0]?.name || "";
+  const lastName  = path.stops[path.stops.length - 1]?.name || "";
+  hitPoly.bindTooltip(`${firstName} → ${lastName}`, {
+    sticky: true, className: "route-tooltip",
+  });
+  hitPoly.on("click", () => selectRoute(idx));
+  hitPoly.on("mouseover", () => {
+    const r = routes[idx];
+    if (!r) return;
+    if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+      r.poly.setStyle({ weight: 4, opacity: 0.85 });
+    } else if (activeRouteIdx === null) {
+      r.poly.setStyle({ weight: 5, opacity: 1 });
+    }
+    if (activeRouteIdx === idx) hitPoly.closeTooltip();
+    const det = document.getElementById(`route-${idx}`);
+    if (det) {
+      det.querySelector(".route-summary")?.classList.add("hovered");
+      det.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+  hitPoly.on("mouseout", () => {
+    const r = routes[idx];
+    if (!r) return;
+    if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+      r.poly.setStyle({ weight: 2, opacity: 0.2 });
+    } else if (activeRouteIdx === null) {
+      r.poly.setStyle({ weight: 3, opacity: 0.75 });
+    }
+    const det = document.getElementById(`route-${idx}`);
+    if (det) det.querySelector(".route-summary")?.classList.remove("hovered");
+  });
+
+  const markers = path.stops
+    .filter(s => s.id !== origin.id)
+    .map(s => {
+      const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
+      m._stopId  = s.id;
+      m._station = s;
+      m.bindPopup(stationPopupHtml(s));
+      m.bindTooltip(s.name, { className: "route-tooltip" });
+
+      let hoveredStopRow = null;
+      m.on("mouseover", () => {
+        const row = connList.querySelector(
+          `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
+        );
+        if (row) {
+          row.classList.add("hovered");
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          hoveredStopRow = row;
+        }
+      });
+      m.on("mouseout", () => {
+        if (hoveredStopRow) {
+          hoveredStopRow.classList.remove("hovered");
+          hoveredStopRow = null;
+        }
+      });
+      m.on("click", () => {
+        if (activeStopRow) activeStopRow.classList.remove("active");
+        const row = connList.querySelector(
+          `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
+        );
+        if (row) {
+          row.classList.add("active");
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          activeStopRow = row;
+        }
+      });
+      return m;
+    });
+
+  return { poly, hitPoly, markers, color, path };
+}
+
+function _buildRouteSidebarHtml(origin, path, idx) {
+  const color     = routeColor(idx);
+  const stopCount = path.stops.length;
+  const firstName = path.stops[0]?.name || "";
+  const lastName  = path.stops[stopCount - 1]?.name || "";
+  const lineCode  = path.line_code || t("trainFallback");
+
+  const timeTag = (path.departure_time && path.arrival_time)
+    ? `<span class="route-times">${path.departure_time} → ${path.arrival_time}</span>`
+    : "";
+
+  const label = `${firstName} — ${lastName} `
+    + `<span style="opacity:.6;font-weight:400">(${lineCode})</span>`
+    + timeTag;
+
+  const stopsHtml = path.stops.map((s, si) => {
+    const isOrigin = s.id === origin.id;
+    const isFirst  = si === 0;
+    const isLast   = si === stopCount - 1;
+    const lineAbove = isFirst ? "transparent" : `${color}88`;
+    const lineBelow = isLast  ? "transparent" : `${color}88`;
+    const dotStyle  = isOrigin
+      ? `background:#fff; border-color:${color};`
+      : `background:${color}; border-color:#fff;`;
+
+    return `
+      <div class="stop-row${isOrigin ? " active" : ""}"
+           data-stop-id="${s.id}" data-route-idx="${idx}"
+           onclick="activateStop('${s.id}', ${idx})">
+        <div class="stop-track">
+          <div class="stop-track-line" style="background:${lineAbove}"></div>
+          <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
+          <div class="stop-track-line" style="background:${lineBelow}"></div>
+        </div>
+        <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.departure_time ? `<span class="stop-time">${s.departure_time}</span>` : ""}</div>
+        ${isOrigin ? "" : `
+          <button class="stop-btn-explore" title="${t("exploreFrom")}"
+                  data-id="${s.id}" data-name="${s.name}"
+                  data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>`}
+      </div>`;
+  }).join("");
+
+  return `
+    <details class="route-section" id="route-${idx}">
+      <summary class="route-summary">
+        <div class="route-swatch" style="background:${color}"></div>
+        <span class="route-label">${label}</span>
+        <span class="route-count">${t("stopCount", stopCount)}</span>
+        <span class="route-chevron">▶</span>
+      </summary>
+      <div class="stop-list">${stopsHtml}</div>
+    </details>`;
+}
+
+function _attachRouteListeners(det, idx) {
+  det.addEventListener("toggle", () => {
+    if (_changingRoute) return;
+    if (det.open) {
+      selectRoute(idx);
+    } else if (activeRouteIdx === idx) {
+      deselectRoute();
+    }
+  });
+
+  det.addEventListener("mouseenter", () => {
+    const r = routes[idx];
+    if (!r) return;
+    if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+      r.poly.setStyle({ weight: 4, opacity: 0.85 });
+    } else if (activeRouteIdx === null) {
+      r.poly.setStyle({ weight: 5, opacity: 1 });
+    }
+  });
+
+  det.addEventListener("mouseleave", () => {
+    const r = routes[idx];
+    if (!r) return;
+    if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+      r.poly.setStyle({ weight: 2, opacity: 0.2 });
+    } else if (activeRouteIdx === null) {
+      r.poly.setStyle({ weight: 3, opacity: 0.75 });
+    }
+  });
+
+  // Stop row hover → highlight the corresponding map marker
+  det.querySelectorAll(".stop-row[data-stop-id]").forEach(row => {
+    const stopId = row.dataset.stopId;
+    row.addEventListener("mouseenter", () => {
+      const r = routes[idx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIconHovered(r.color));
+    });
+    row.addEventListener("mouseleave", () => {
+      const r = routes[idx];
+      if (!r) return;
+      const m = r.markers.find(mk => mk._stopId === stopId);
+      if (m) m.setIcon(circleIcon(r.color));
+    });
+  });
+}
+
+// ── Render connections (train mode — called once on 'done') ───────────────────
 
 // Called once the SSE stream has delivered all route paths for a search.
 // `paths` is the route_paths array (non-empty when routes could be reconstructed).
@@ -200,205 +389,38 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
   }
 
   // ── Map layers ──────────────────────────────────────────────────────────────
-  routes = paths.map((path, idx) => {
-    const color   = routeColor(idx);
-    const latlngs = path.stops.map(s => [s.lat, s.lon]);
-
-    const poly = L.polyline(latlngs, { color, weight: 3, opacity: 0.75 }).addTo(map);
-
-    const hitPoly = L.polyline(latlngs, {
-      color, weight: 20, opacity: 0, interactive: true,
-    }).addTo(map);
-    const firstName = path.stops[0]?.name || "";
-    const lastName  = path.stops[path.stops.length - 1]?.name || "";
-    hitPoly.bindTooltip(`${firstName} → ${lastName}`, {
-      sticky: true, className: "route-tooltip",
-    });
-    hitPoly.on("click", () => selectRoute(idx));
-    hitPoly.on("mouseover", () => {
-      const r = routes[idx];
-      if (!r) return;
-      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
-        r.poly.setStyle({ weight: 4, opacity: 0.85 });
-      } else if (activeRouteIdx === null) {
-        r.poly.setStyle({ weight: 5, opacity: 1 });
-      }
-      // Only show tooltip when this route is not the focused one
-      if (activeRouteIdx === idx) {
-        hitPoly.closeTooltip();
-      }
-      const det = document.getElementById(`route-${idx}`);
-      if (det) {
-        det.querySelector(".route-summary")?.classList.add("hovered");
-        det.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
-    });
-    hitPoly.on("mouseout", () => {
-      const r = routes[idx];
-      if (!r) return;
-      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
-        r.poly.setStyle({ weight: 2, opacity: 0.2 });
-      } else if (activeRouteIdx === null) {
-        r.poly.setStyle({ weight: 3, opacity: 0.75 });
-      }
-      const det = document.getElementById(`route-${idx}`);
-      if (det) det.querySelector(".route-summary")?.classList.remove("hovered");
-    });
-
-    const markers = path.stops
-      .filter(s => s.id !== origin.id)
-      .map(s => {
-        const m = L.marker([s.lat, s.lon], { icon: circleIcon(color) });
-
-        m._stopId  = s.id;
-        m._station = s;
-
-        m.bindPopup(stationPopupHtml(s));
-        m.bindTooltip(s.name, { className: "route-tooltip" });
-
-        let hoveredStopRow = null;
-        m.on("mouseover", () => {
-          const row = connList.querySelector(
-            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
-          );
-          if (row) {
-            row.classList.add("hovered");
-            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-            hoveredStopRow = row;
-          }
-        });
-        m.on("mouseout", () => {
-          if (hoveredStopRow) {
-            hoveredStopRow.classList.remove("hovered");
-            hoveredStopRow = null;
-          }
-        });
-
-        m.on("click", () => {
-          if (activeStopRow) activeStopRow.classList.remove("active");
-          const row = connList.querySelector(
-            `[data-stop-id="${CSS.escape(s.id)}"][data-route-idx="${idx}"]`
-          );
-          if (row) {
-            row.classList.add("active");
-            row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-            activeStopRow = row;
-          }
-        });
-
-        return m;
-      });
-
-    return { poly, hitPoly, markers, color, path };
-  });
+  routes = paths.map((path, idx) => _buildRouteMapLayer(origin, path, idx));
 
   // ── Sidebar accordions ──────────────────────────────────────────────────────
-  connList.innerHTML = paths.map((path, idx) => {
-    const color     = routeColor(idx);
-    const stopCount = path.stops.length;
-    const firstName = path.stops[0]?.name || "";
-    const lastName  = path.stops[stopCount - 1]?.name || "";
-    const lineCode  = path.line_code || t("trainFallback");
-
-    const timeTag = (path.departure_time && path.arrival_time)
-      ? `<span class="route-times">${path.departure_time} → ${path.arrival_time}</span>`
-      : "";
-
-    const label = `${firstName} — ${lastName} `
-      + `<span style="opacity:.6;font-weight:400">(${lineCode})</span>`
-      + timeTag;
-
-    const stopsHtml = path.stops.map((s, si) => {
-      const isOrigin = s.id === origin.id;
-      const isFirst  = si === 0;
-      const isLast   = si === stopCount - 1;
-
-      const lineAbove = isFirst ? "transparent" : `${color}88`;
-      const lineBelow = isLast  ? "transparent" : `${color}88`;
-
-      const dotStyle = isOrigin
-        ? `background:#fff; border-color:${color};`
-        : `background:${color}; border-color:#fff;`;
-
-      return `
-        <div class="stop-row${isOrigin ? " active" : ""}"
-             data-stop-id="${s.id}" data-route-idx="${idx}"
-             onclick="activateStop('${s.id}', ${idx})">
-          <div class="stop-track">
-            <div class="stop-track-line" style="background:${lineAbove}"></div>
-            <div class="stop-dot${isOrigin ? " origin" : ""}" style="${dotStyle}"></div>
-            <div class="stop-track-line" style="background:${lineBelow}"></div>
-          </div>
-          <div class="stop-name${isOrigin ? " origin" : ""}">${s.name}${s.departure_time ? `<span class="stop-time">${s.departure_time}</span>` : ""}</div>
-          ${isOrigin ? "" : `
-            <button class="stop-btn-explore" title="${t("exploreFrom")}"
-                    data-id="${s.id}" data-name="${s.name}"
-                    data-lat="${s.lat}" data-lon="${s.lon}">${EXPLORE_ICON}</button>`}
-        </div>`;
-    }).join("");
-
-    return `
-      <details class="route-section" id="route-${idx}">
-        <summary class="route-summary">
-          <div class="route-swatch" style="background:${color}"></div>
-          <span class="route-label">${label}</span>
-          <span class="route-count">${t("stopCount", stopCount)}</span>
-          <span class="route-chevron">▶</span>
-        </summary>
-        <div class="stop-list">${stopsHtml}</div>
-      </details>`;
-  }).join("");
+  connList.innerHTML = paths.map((path, idx) => _buildRouteSidebarHtml(origin, path, idx)).join("");
 
   connList.querySelectorAll("details.route-section").forEach((det, idx) => {
-    det.addEventListener("toggle", () => {
-      if (_changingRoute) return;
-      if (det.open) {
-        selectRoute(idx);
-      } else if (activeRouteIdx === idx) {
-        deselectRoute();
-      }
-    });
-
-    det.addEventListener("mouseenter", () => {
-      const r = routes[idx];
-      if (!r) return;
-      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
-        // A different route is selected — temporarily restore this one
-        r.poly.setStyle({ weight: 4, opacity: 0.85 });
-      } else if (activeRouteIdx === null) {
-        r.poly.setStyle({ weight: 5, opacity: 1 });
-      }
-    });
-
-    det.addEventListener("mouseleave", () => {
-      const r = routes[idx];
-      if (!r) return;
-      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
-        // Restore dimmed state
-        r.poly.setStyle({ weight: 2, opacity: 0.2 });
-      } else if (activeRouteIdx === null) {
-        r.poly.setStyle({ weight: 3, opacity: 0.75 });
-      }
-    });
+    _attachRouteListeners(det, idx);
   });
+}
 
-  // Stop row hover → highlight the corresponding map marker
-  connList.querySelectorAll(".stop-row[data-stop-id]").forEach(row => {
-    const stopId   = row.dataset.stopId;
-    const routeIdx = parseInt(row.dataset.routeIdx, 10);
-    row.addEventListener("mouseenter", () => {
-      const r = routes[routeIdx];
-      if (!r) return;
-      const m = r.markers.find(mk => mk._stopId === stopId);
-      if (m) m.setIcon(circleIconHovered(r.color));
-    });
-    row.addEventListener("mouseleave", () => {
-      const r = routes[routeIdx];
-      if (!r) return;
-      const m = r.markers.find(mk => mk._stopId === stopId);
-      if (m) m.setIcon(circleIcon(r.color));
-    });
-  });
+// ── Add a single route incrementally (bus mode progressive streaming) ─────────
+
+// Called for each 'route' SSE event. Appends one route to the map and sidebar
+// without clearing existing content.
+function addRoute(origin, path) {
+  // Remove the empty-state placeholder on first route
+  const empty = document.getElementById("empty-state");
+  if (empty) empty.remove();
+
+  const idx = routes.length;
+  const route = _buildRouteMapLayer(origin, path, idx);
+  routes.push(route);
+
+  // If another route is already selected, add this one dimmed
+  if (activeRouteIdx !== null) {
+    route.poly.setStyle({ weight: 2, opacity: 0.2 });
+  }
+
+  const html = _buildRouteSidebarHtml(origin, path, idx);
+  connList.insertAdjacentHTML("beforeend", html);
+  const det = document.getElementById(`route-${idx}`);
+  if (det) _attachRouteListeners(det, idx);
 }
 
 // ── Bus mode rendering ────────────────────────────────────────────────────────
