@@ -9,6 +9,7 @@
     station: downstream trips give the forward travel times, but upstream stops require looking at
     the reverse-direction schedules (or the arrival times of the same trips) to produce correct
     durations for stations that come before the origin in the route order.
+- if multiple choice for one route, set a dropdown selector for departure date, update the according intermediate schedule as well
 
 ## Filters
 
@@ -21,6 +22,8 @@
 - show routes on map while the rest is still loading
 - put country picker after train or bus picker (if bus, dont show country picker)
 - combine research for countries (and remove country picker)
+- put an X on the loader button when clicked, until search is finished
+- try to filter faster the routes needed
 
 # Bugs
 
