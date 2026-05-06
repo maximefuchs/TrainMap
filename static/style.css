@@ -202,24 +202,21 @@ header h1 span { color: #38bdf8; }
 #status.loading { color: #facc15; }
 #status.ok { color: #4ade80; }
 
-/* ── Language dropdown ───────────────────────────────────── */
-#lang-toggle {
-  flex-shrink: 0;
-  margin-left: auto;
-}
+/* ── Language selector (inside sidebar header) ───────────── */
 #lang-select {
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid #475569;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-size: 0.82rem;
-  font-weight: 600;
+  margin-left: auto;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid #334155;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.75rem;
   cursor: pointer;
   outline: none;
-  transition: border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
 }
-#lang-select:hover, #lang-select:focus { border-color: #38bdf8; }
+#lang-select:hover, #lang-select:focus { color: #e2e8f0; border-color: #475569; }
 
 /* ── Data coverage notice ────────────────────────────────── */
 #data-coverage {
@@ -268,6 +265,9 @@ main {
 }
 
 #sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 14px 16px 10px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -517,25 +517,31 @@ path.leaflet-interactive:focus { outline: none; }
 /* ── Mobile (≤ 600px) ────────────────────────────────────── */
 @media (max-width: 600px) {
   #data-coverage { left: 8px; } /* sidebar is a bottom sheet, no left offset needed */
-  /* Header: two-row layout */
+  /* Header: multi-row layout */
   header {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     padding: 10px 14px;
   }
-  header h1   { flex: 1; }
-  #lang-toggle { margin-left: 0; }  /* lang stays on row 1 after title */
+  header h1 { flex: 1; }
 
+  /* Row 2: search bar — full width */
   .search-wrap {
     order: 2;
-    flex: 1 1 100%;    /* takes full second row */
+    flex: 1 1 100%;
     max-width: 100%;
   }
-  #date-input {
+
+  /* Row 3: date + search button side by side */
+  #date-wrap {
     order: 3;
-    flex: 1 1 100%;    /* below search on its own row */
+    flex: 1 1 0;
+  }
+  #date-input {
+    width: 100%;
     font-size: 0.85rem;
   }
+  #search-btn { order: 3; }
 
   /* Map fills the whole main area */
   #map { flex: 1; }
@@ -588,7 +594,7 @@ path.leaflet-interactive:focus { outline: none; }
   }
   #sidebar-close {
     display: block;
-    margin-left: auto;
+    margin-left: 0;
     background: none;
     border: none;
     color: #64748b;

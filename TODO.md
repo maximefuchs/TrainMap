@@ -19,11 +19,11 @@
 
 - For bus: try to filter faster the routes needed
 - For Italian trains, lots of elements have status 204. See if it's possible to know in advance and skip it
-- Smartphone display: date and search button below city selection + put the language selector on like a discreet floating button
 
 # Bugs
 
 - No trains found for date next month
+- For some Italy stations, the search displays routes that are not going throught the searched station
 
 # Other
 
