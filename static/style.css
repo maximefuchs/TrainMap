@@ -259,6 +259,7 @@ main {
 }
 .route-summary::-webkit-details-marker { display: none; }
 .route-summary:hover { background: #0f172a; }
+.route-summary.hovered { background: #0f172a; }
 
 .route-swatch {
   width: 12px;

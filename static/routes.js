@@ -199,6 +199,31 @@ function renderConnections(origin, paths, conns = [], mode = "train") {
       sticky: true, className: "route-tooltip",
     });
     hitPoly.on("click", () => selectRoute(idx));
+    hitPoly.on("mouseover", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        r.poly.setStyle({ weight: 4, opacity: 0.85 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 5, opacity: 1 });
+      }
+      const det = document.getElementById(`route-${idx}`);
+      if (det) {
+        det.querySelector(".route-summary")?.classList.add("hovered");
+        det.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    });
+    hitPoly.on("mouseout", () => {
+      const r = routes[idx];
+      if (!r) return;
+      if (activeRouteIdx !== null && activeRouteIdx !== idx) {
+        r.poly.setStyle({ weight: 2, opacity: 0.2 });
+      } else if (activeRouteIdx === null) {
+        r.poly.setStyle({ weight: 3, opacity: 0.75 });
+      }
+      const det = document.getElementById(`route-${idx}`);
+      if (det) det.querySelector(".route-summary")?.classList.remove("hovered");
+    });
 
     const markers = path.stops
       .filter(s => s.id !== origin.id)

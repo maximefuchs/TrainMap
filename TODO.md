@@ -24,6 +24,7 @@
 - put an X on the loader button when clicked, until search is finished
 - try to filter faster the routes needed
 - smartphone display: date and search button below city selection + put the language selector on like a discreet floating button
+- when hovering a route, it should display the start and stop station, instead of just "train"
 
 # Bugs
 
