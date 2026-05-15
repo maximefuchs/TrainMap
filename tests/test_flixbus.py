@@ -236,6 +236,11 @@ def _make_legs(dep_city_id, arr_city_id, dep_iso, arr_iso, dep_station_id="s-dep
 
 
 class TestGetDirectConnections:
+    def setup_method(self):
+        # Clear the connection cache so tests don't share state
+        import providers.flixbus as fb
+        fb._connections_cache.clear()
+
     def test_returns_connections_with_all_trips(self):
         paris_city = {"id": "paris-id", "name": "Paris", "lat": 48.85, "lon": 2.35}
         lyon_city  = {"id": "lyon-id",  "name": "Lyon",  "lat": 45.76, "lon": 4.83}

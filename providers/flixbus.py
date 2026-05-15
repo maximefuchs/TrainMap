@@ -52,6 +52,11 @@ _ENUM_QUERIES = list(_ALPHA)
 _city_cache: dict[str, dict[str, dict]] = {}
 _cache_lock = threading.Lock()
 
+# In-memory connection results cache: {(city_id, date_str): result_dict}
+# Avoids re-fetching all 215 city pairs for repeated searches from the same origin.
+_connections_cache: dict[tuple, dict] = {}
+_connections_cache_lock = threading.Lock()
+
 # Countries that have FlixBus service (used for enumerating destinations)
 # We use the ISO 3166-1 alpha-2 code as used by the FlixBus API's `country` field.
 COUNTRY_CODES = {
@@ -403,6 +408,19 @@ def get_direct_connections(
     """
     date_str = _date_param(date)
 
+    # Return cached result immediately if available
+    cache_key = (city_id, date_str)
+    with _connections_cache_lock:
+        cached = _connections_cache.get(cache_key)
+    if cached is not None:
+        if progress_callback:
+            n = len(cached["connections"])
+            progress_callback(n, n, "Loaded from cache")
+        if route_callback:
+            for _conn, _path in cached["_pairs"]:
+                route_callback(_conn, _path)
+        return {"connections": cached["connections"], "route_paths": cached["route_paths"]}
+
     # 1. Build destination pool
     all_cities = _build_city_cache(country)
     destinations = [c for cid, c in all_cities.items() if cid != city_id]
@@ -413,10 +431,11 @@ def get_direct_connections(
     # Accumulated results (also returned for non-streaming callers)
     connections: list[dict] = []
     route_paths: list[dict] = []
+    route_callback_pairs: list[tuple] = []  # for cache replay
     seen_paths: set[tuple] = set()
     done_count = 0
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=20) as ex:
         futs = {
             ex.submit(_check_connection, city_id, city, date_str): city
             for city in destinations
@@ -523,10 +542,18 @@ def get_direct_connections(
                 }
                 route_paths.append(route_path)
 
+                route_callback_pairs.append((connection, route_path))
                 if route_callback:
                     route_callback(connection, route_path)
 
-    return {
+    result = {
         "connections": connections,
         "route_paths": route_paths,
     }
+    with _connections_cache_lock:
+        _connections_cache[cache_key] = {
+            "connections": connections,
+            "route_paths":  route_paths,
+            "_pairs":       route_callback_pairs,
+        }
+    return result

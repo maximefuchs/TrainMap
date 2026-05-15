@@ -9,7 +9,7 @@
     station: downstream trips give the forward travel times, but upstream stops require looking at
     the reverse-direction schedules (or the arrival times of the same trips) to produce correct
     durations for stations that come before the origin in the route order.
-- If multiple choices for one route, set a dropdown selector for departure date, update the according intermediate schedule as well
+- If multiple choices for one route, set a dropdown selector for departure date, update the according intermediate schedule as well + selector for direction of train
 
 ## Filters
 
